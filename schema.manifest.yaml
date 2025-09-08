@@ -1,0 +1,485 @@
+# schema.manifest.yaml
+version: 0.1
+warehouse:
+  engine: postgres
+  # set this to your actual DB/schema names if different
+  database: default_db
+  schema: public
+owners:
+  - name: Mark Hill
+    role: data-product-owner
+slas:
+  default_freshness: "daily by 09:00 local"
+
+relations:
+
+  # ---------- CORE INPUTS FOR TODAY ----------
+  - id: withings_daily_valid
+    purpose: source_of_truth_fat_mass_daily
+    type: view
+    fq_name: public.withings_daily_valid
+    depends_on:
+      - public.withings_daily_first
+    keys:
+      - day_date
+    columns:
+      - { name: day_date,         type: date,    required: false,  desc: calendar day (local) }
+      - { name: weight_kg,        type: numeric, required: false,  desc: daily weight (kg) }
+      - { name: fat_mass_kg,      type: numeric, required: false,  desc: Withings fat mass (kg), validated }
+      - { name: fat_free_mass_kg, type: numeric, required: false,  desc: fat-free mass (kg) }
+    freshness_sla: "daily by 09:00"
+    tests:
+      shape:
+        - not_null: [day_date]
+        - unique_keys: [[day_date]]
+      semantic:
+        - range: { column: fat_mass_kg, min: 10, max: 40 }   # adjust if needed
+      completeness:
+        - max_gap_days: 7
+    usage:
+      path_A: true
+      path_B: true
+
+  - id: nutrition_daily
+    purpose: source_of_truth_kcal_in_daily
+    type: view
+    fq_name: public.nutrition_daily
+    depends_on:
+      - public.nutrition_meals
+    keys:
+      - day_date
+    columns:
+      - { name: day_date,                    type: date,    required: false,  desc: calendar day (local) }
+      - { name: total_calories_kcal,         type: numeric, required: false,  desc: total daily intake kcal }
+      - { name: total_fat_g,                 type: numeric, required: false,  desc: total fat (g) }
+      - { name: total_saturated_fat_g,       type: numeric, required: false,  desc: saturated fat (g) }
+      - { name: total_polyunsaturated_fat_g, type: numeric, required: false,  desc: polyunsaturated fat (g) }
+      - { name: total_monounsaturated_fat_g, type: numeric, required: false,  desc: monounsaturated fat (g) }
+      - { name: total_trans_fat_g,           type: numeric, required: false,  desc: trans fat (g) }
+      - { name: total_cholesterol_mg,        type: numeric, required: false,  desc: cholesterol (mg) }
+      - { name: total_sodium_mg,             type: numeric, required: false,  desc: sodium (mg) }
+      - { name: total_potassium_mg,          type: numeric, required: false,  desc: potassium (mg) }
+      - { name: total_carbohydrates_g,       type: numeric, required: false,  desc: carbohydrates (g) }
+      - { name: total_fiber_g,               type: numeric, required: false,  desc: fiber (g) }
+      - { name: total_sugar_g,               type: numeric, required: false,  desc: sugar (g) }
+      - { name: total_protein_g,             type: numeric, required: false,  desc: protein (g) }
+      - { name: total_vitamin_a_iu,          type: numeric, required: false,  desc: vitamin A (IU) }
+      - { name: total_vitamin_c_mg,          type: numeric, required: false,  desc: vitamin C (mg) }
+      - { name: total_calcium_mg,            type: numeric, required: false,  desc: calcium (mg) }
+      - { name: total_iron_mg,               type: numeric, required: false,  desc: iron (mg) }
+    freshness_sla: "daily by 09:00"
+    tests:
+      shape:
+        - not_null: [day_date]
+        - unique_keys: [[day_date]]
+      semantic:
+        - range: { column: total_calories_kcal, min: 500, max: 6000 }
+    usage:
+      path_A: false
+      path_B: true
+      coaching_weekly_review: [total_protein_g, total_fiber_g]
+
+  - id: trainingpeaks_enriched
+    purpose: per_workout_energy_enriched_for_missing_kcal
+    type: view
+    fq_name: public.trainingpeaks_enriched
+    depends_on:
+      - public.trainingpeaks_workouts_raw
+    keys:
+      - local_date
+    columns:
+      - { name: local_date,           type: date,    required: false,  desc: workout local date }
+      - { name: title,                type: text,    required: false,  desc: workout title }
+      - { name: workout_type,         type: text,    required: false,  desc: type of workout }
+      - { name: workout_description,  type: text,    required: false,  desc: workout description }
+      - { name: hours,                type: numeric, required: false,  desc: duration in hours }
+      - { name: duration_min,         type: numeric, required: false,  desc: duration in minutes }
+      - { name: tss,                  type: numeric, required: false,  desc: training stress score }
+      - { name: if_factor,            type: numeric, required: false,  desc: intensity factor }
+      - { name: energy_kcal,          type: numeric, required: false,  desc: energy burned (kcal) }
+      - { name: is_estimated_energy,  type: boolean, required: false,  desc: whether energy is estimated }
+    freshness_sla: "daily by 09:00"
+    tests:
+      shape:
+        - not_null: [local_date]
+        - unique_keys: [[local_date, title]]
+      semantic:
+        - range: { column: energy_kcal, min: 0, max: 8000 }
+    usage:
+      # Note: per-workout rows; daily aggregation is provided via p0_staging.workout_kcal
+      path_B: true
+
+  - id: withings_daily_first
+    purpose: canonical_first_weigh_in_daily
+    type: view
+    fq_name: public.withings_daily_first
+    depends_on:
+      - public.withings_measurements_raw
+    keys:
+      - day_date
+    columns:
+      - { name: day_date,        type: date,                      required: false, desc: calendar day (derived from measured_at, local date) }
+      - { name: measured_at,     type: "timestamp with time zone", required: false, desc: earliest reading timestamp (UTC) for that day }
+      - { name: weight_lb,       type: numeric,                   required: false, desc: weight (lb) from first reading }
+      - { name: fat_mass_lb,     type: numeric,                   required: false, desc: fat mass (lb) from first reading }
+      - { name: muscle_mass_lb,  type: numeric,                   required: false, desc: muscle mass (lb) }
+      - { name: bone_mass_lb,    type: numeric,                   required: false, desc: bone mass (lb) }
+      - { name: body_water_lb,   type: numeric,                   required: false, desc: body water (lb) }
+      - { name: source_file,     type: text,                      required: false, desc: CSV provenance label }
+      - { name: note,            type: text,                      required: false, desc: freeform note if present }
+      - { name: raw,             type: jsonb,                    required: false, desc: original CSV row as JSON }
+    freshness_sla: "daily by 09:00"
+    tests:
+      shape:
+        - not_null: [day_date]
+        - unique_keys: [[day_date]]
+    usage:
+      documentation_only: false
+
+  # ---------- MODELING SPLITS (READ-ONLY) ----------
+  - id: p0_imputed_intake
+    purpose: modeling_imputed_intake_daily
+    
+    type: table
+    fq_name: public.p0_imputed_intake
+    keys:
+      - fact_date
+    columns:
+      - { name: fact_date,   type: date,                    required: true,  desc: calendar day (local) }
+      - { name: intake_kcal, type: integer,                 required: true,  desc: daily intake kcal after imputation }
+      - { name: method,      type: text,                    required: true,  desc: imputation/ingest method }
+      - { name: created_at,  type: "timestamp with time zone", required: true,  desc: record creation timestamp }
+    tests:
+      shape:
+        - not_null: [fact_date, intake_kcal]
+        - unique_keys: [[fact_date]]
+
+  - id: p0_staging
+    purpose: modeling_staging_daily
+    type: table
+    fq_name: public.p0_staging
+    keys:
+      - fact_date
+    columns:
+      - { name: fact_date,    type: date,           required: true,  desc: calendar day (local) }
+      - { name: intake_kcal,  type: integer,        required: false, desc: intake kcal (from p0_imputed_intake) }
+      - { name: workout_kcal, type: integer,        required: false, desc: exercise kcal (from trainingpeaks_enriched) }
+      - { name: weight_kg,    type: "numeric(10,3)", required: false, desc: daily weight (kg) }
+      - { name: fat_mass_kg,  type: "numeric(10,3)", required: false, desc: daily fat mass (kg) }
+      - { name: lean_mass_kg, type: "numeric(10,3)", required: false, desc: daily lean mass (kg) }
+    tests:
+      shape:
+        - not_null: [fact_date]
+        - unique_keys: [[fact_date]]
+      semantic:
+        - range: { column: fat_mass_kg,  min: 20,  max: 60 }
+        - range: { column: intake_kcal,  min: 500, max: 6000 }
+        - range: { column: workout_kcal, min: 0,   max: 8000 }
+
+  - id: p1_train_daily
+    purpose: modeling_train_split_2021_2024
+    type: view
+    fq_name: public.p1_train_daily
+    depends_on:
+      - public.p0_staging
+    keys: [fact_date]
+    columns:
+      - { name: fact_date,     type: date,           required: false }
+      - { name: intake_kcal,   type: integer,        required: false }
+      - { name: workout_kcal,  type: integer,        required: false }
+      - { name: net_kcal,      type: integer,        required: false }
+      - { name: fat_mass_kg,   type: "numeric(10,3)", required: false }
+      - { name: lean_mass_kg,  type: "numeric(10,3)", required: false }
+      - { name: weight_kg,     type: "numeric(10,3)", required: false }
+    time_range: { start: "2021-01-01", end: "2024-12-31" }
+    usage:
+      path_A: true
+      path_B: true
+
+  - id: p1_test_daily
+    purpose: modeling_test_split_2025_ytd
+    type: view
+    fq_name: public.p1_test_daily
+    depends_on:
+      - public.p0_staging
+    keys: [fact_date]
+    columns:
+      - { name: fact_date,     type: date,           required: false }
+      - { name: intake_kcal,   type: integer,        required: false }
+      - { name: workout_kcal,  type: integer,        required: false }
+      - { name: net_kcal,      type: integer,        required: false }
+      - { name: fat_mass_kg,   type: "numeric(10,3)", required: false }
+      - { name: lean_mass_kg,  type: "numeric(10,3)", required: false }
+      - { name: weight_kg,     type: "numeric(10,3)", required: false }
+    time_range: { start: "2025-01-01", end: "current" }
+    usage:
+      path_A: true
+      path_B: true
+
+  # ---------- MODELING WINDOWS (GENERATED) ----------
+  - id: p1_train_windows_flex7
+    purpose: modeling_train_windows_flexible_7d
+    type: view
+    fq_name: public.p1_train_windows_flex7
+    depends_on:
+      - public.p1_train_daily
+    keys:
+      - end_date
+    columns:
+      - { name: start_date,        type: date,    required: false,  desc: window start date }
+      - { name: end_date,          type: date,    required: false,  desc: window end date }
+      - { name: days,              type: integer, required: false,  desc: window length in days }
+      - { name: fm_start,          type: "numeric(10,3)", required: false,  desc: fat mass at start of window }
+      - { name: fm_end,            type: "numeric(10,3)", required: false,  desc: fat mass at end of window }
+      - { name: delta_fm_kg,       type: numeric, required: false,  desc: fat mass change over window }
+      - { name: intake_kcal_sum,   type: bigint,  required: false,  desc: total intake calories over window }
+      - { name: workout_kcal_sum,  type: bigint,  required: false,  desc: total workout calories over window }
+      - { name: net_kcal_sum,      type: bigint,  required: false,  desc: net calories over window }
+      - { name: is_7d,             type: boolean, required: false,  desc: true if exactly 7-day window }
+      - { name: is_8d,             type: boolean, required: false,  desc: true if exactly 8-day window }
+      - { name: is_9d,             type: boolean, required: false,  desc: true if exactly 9-day window }
+    time_range: { start: "2021-01-01", end: "2024-12-31" }
+    usage:
+      path_A: true
+      path_B: true
+
+  - id: p1_test_windows_flex7
+    purpose: modeling_test_windows_flexible_7d
+    type: view
+    fq_name: public.p1_test_windows_flex7
+    depends_on:
+      - public.p1_test_daily
+    keys:
+      - end_date
+    columns:
+      - { name: start_date,        type: date,    required: false,  desc: window start date }
+      - { name: end_date,          type: date,    required: false,  desc: window end date }
+      - { name: days,              type: integer, required: false,  desc: window length in days }
+      - { name: fm_start,          type: "numeric(10,3)", required: false,  desc: fat mass at start of window }
+      - { name: fm_end,            type: "numeric(10,3)", required: false,  desc: fat mass at end of window }
+      - { name: delta_fm_kg,       type: numeric, required: false,  desc: fat mass change over window }
+      - { name: intake_kcal_sum,   type: bigint,  required: false,  desc: total intake calories over window }
+      - { name: workout_kcal_sum,  type: bigint,  required: false,  desc: total workout calories over window }
+      - { name: net_kcal_sum,      type: bigint,  required: false,  desc: net calories over window }
+      - { name: is_7d,             type: boolean, required: false,  desc: true if exactly 7-day window }
+      - { name: is_8d,             type: boolean, required: false,  desc: true if exactly 8-day window }
+      - { name: is_9d,             type: boolean, required: false,  desc: true if exactly 9-day window }
+    time_range: { start: "2025-01-01", end: "current" }
+    usage:
+      path_A: true
+      path_B: true
+
+  - id: p1_fm_clean
+    purpose: modeling_cleaned_fat_mass_daily
+    type: table
+    fq_name: public.p1_fm_clean
+    keys:
+      - fact_date
+    columns:
+      - { name: fact_date,    type: "timestamp without time zone", required: false,  desc: calendar day (local) }
+      - { name: fat_mass_kg,  type: "double precision", required: false,  desc: cleaned fat mass (kg), outliers removed }
+    tests:
+      shape:
+        - unique_keys: [[fact_date]]
+      semantic:
+        - range: { column: fat_mass_kg, min: 20, max: 60 }
+    usage:
+      path_A: true
+      path_B: true
+
+  # ---------- RICH RAW SOURCES (DOCUMENTED, NOT USED TODAY) ----------
+  - id: nutrition_meals
+    purpose: raw_mfp_meal_rows_for_aggregation
+    type: table
+    fq_name: public.nutrition_meals
+    keys: [day_date, meal]
+    columns:
+      - { name: day_date,               type: date,     required: true }
+      - { name: meal,                   type: text,     required: true }
+      - { name: calories_kcal,          type: "numeric(10,2)",  required: false }
+      - { name: protein_g,              type: "numeric(10,2)",  required: false }
+      - { name: fiber_g,                type: "numeric(10,2)",  required: false }
+      - { name: carbohydrates_g,        type: "numeric(10,2)",  required: false }
+      - { name: fat_g,                  type: "numeric(10,2)",  required: false }
+      - { name: saturated_fat_g,        type: "numeric(10,2)",  required: false }
+      - { name: polyunsaturated_fat_g,  type: "numeric(10,2)",  required: false }
+      - { name: monounsaturated_fat_g,  type: "numeric(10,2)",  required: false }
+      - { name: trans_fat_g,            type: "numeric(10,2)",  required: false }
+      - { name: cholesterol_mg,         type: "numeric(10,2)",  required: false }
+      - { name: sodium_mg,              type: "numeric(10,2)",  required: false }
+      - { name: potassium_mg,           type: "numeric(10,2)",  required: false }
+      - { name: sugar_g,                type: "numeric(10,2)",  required: false }
+      - { name: vitamin_a_iu,           type: "numeric(10,2)",  required: false }
+      - { name: vitamin_c_mg,           type: "numeric(10,2)",  required: false }
+      - { name: calcium_mg,             type: "numeric(10,2)",  required: false }
+      - { name: iron_mg,                type: "numeric(10,2)",  required: false }
+      # … (full list available in DB; keep manifest concise)
+    time_range: { start: "2021-01-01", end: "2025-08-24" }
+    column_policy: subset
+    freshness_sla: "append-only via CSV import"
+    usage:
+      documentation_only: true
+
+  - id: trainingpeaks_workouts_raw
+    purpose: raw_tp_workouts
+    type: table
+    fq_name: public.trainingpeaks_workouts_raw
+    keys: [workout_day, title]   # adjust if a native id exists
+    columns:
+      - { name: workout_day,   type: text,     required: false }
+      - { name: title,         type: text,     required: false }
+      - { name: workout_description, type: text, required: false }
+      - { name: planned_duration, type: text,  required: false }
+      - { name: planned_distance_m, type: text, required: false }
+      - { name: coach_comments, type: text,    required: false }
+      - { name: distance_m,    type: text,     required: false }
+      - { name: power_avg,     type: text,     required: false }
+      - { name: power_max,     type: text,     required: false }
+      - { name: athlete_comments, type: text,  required: false }
+      - { name: time_total_hours, type: text,  required: false }
+      - { name: velocity_avg,  type: text,     required: false }
+      - { name: velocity_max,  type: text,     required: false }
+      - { name: cadence_avg,   type: text,     required: false }
+      - { name: cadence_max,   type: text,     required: false }
+      - { name: hr_avg,        type: text,     required: false }
+      - { name: hr_max,        type: text,     required: false }
+      - { name: torque_avg,    type: text,     required: false }
+      - { name: torque_max,    type: text,     required: false }
+      - { name: energy_kcal,   type: text,     required: false }
+      - { name: tss,           type: text,     required: false }
+      - { name: if_factor,     type: text,     required: false }
+      - { name: workout_type,  type: text,     required: false }
+      - { name: source,        type: text,     required: false }
+      - { name: rpe,           type: text,     required: false }
+      - { name: feeling,       type: text,     required: false }
+      # Heart rate zones (hr_zone1_min through hr_zone10_min)
+      - { name: hr_zone1_min,  type: text,     required: false }
+      - { name: hr_zone2_min,  type: text,     required: false }
+      - { name: hr_zone3_min,  type: text,     required: false }
+      - { name: hr_zone4_min,  type: text,     required: false }
+      - { name: hr_zone5_min,  type: text,     required: false }
+      - { name: hr_zone6_min,  type: text,     required: false }
+      - { name: hr_zone7_min,  type: text,     required: false }
+      - { name: hr_zone8_min,  type: text,     required: false }
+      - { name: hr_zone9_min,  type: text,     required: false }
+      - { name: hr_zone10_min, type: text,     required: false }
+      # Power zones (pwr_zone1_min through pwr_zone10_min)
+      - { name: pwr_zone1_min, type: text,     required: false }
+      - { name: pwr_zone2_min, type: text,     required: false }
+      - { name: pwr_zone3_min, type: text,     required: false }
+      - { name: pwr_zone4_min, type: text,     required: false }
+      - { name: pwr_zone5_min, type: text,     required: false }
+      - { name: pwr_zone6_min, type: text,     required: false }
+      - { name: pwr_zone7_min, type: text,     required: false }
+      - { name: pwr_zone8_min, type: text,     required: false }
+      - { name: pwr_zone9_min, type: text,     required: false }
+      - { name: pwr_zone10_min, type: text,    required: false }
+      # … many more fields available for future refinements
+    column_policy: subset
+    usage:
+      documentation_only: true
+
+  - id: withings_measurements_raw
+    purpose: raw_withings_csv_measurements
+    type: table
+    fq_name: public.withings_measurements_raw
+    keys:
+      - measured_at
+    columns:
+      - { name: measured_at,       type: "timestamp with time zone", required: true,  desc: measurement timestamp (UTC) }
+      - { name: weight_lb,         type: numeric,  required: false,  desc: weight in pounds }
+      - { name: fat_mass_lb,       type: numeric,  required: false,  desc: fat mass in pounds }
+      - { name: muscle_mass_lb,    type: numeric,  required: false,  desc: muscle mass in pounds }
+      - { name: bone_mass_lb,      type: numeric,  required: false,  desc: bone mass in pounds }
+      - { name: body_water_lb,     type: numeric,  required: false,  desc: body water in pounds }
+      - { name: source_file,       type: text,     required: false,  desc: source CSV filename }
+      - { name: note,              type: text,     required: false,  desc: user notes }
+      - { name: raw,               type: jsonb,    required: false,  desc: original CSV row as JSON }
+      - { name: id,                type: bigint,   required: true,   desc: surrogate primary key }
+      - { name: ingested_at,       type: "timestamp with time zone", required: true,   desc: row ingest timestamp }
+    tests:
+      shape:
+        - not_null: [measured_at]
+        - unique_keys: [[measured_at]]
+    usage:
+      documentation_only: true
+
+  - id: withings_daily
+    purpose: raw_withings_daily_ingest
+    type: table
+    fq_name: public.withings_daily
+    keys: [day_date]
+    columns:
+      - { name: day_date,          type: date,     required: true }
+      - { name: fat_mass_kg,       type: numeric,  required: false }
+      - { name: weight_kg,         type: numeric,  required: false }
+      - { name: fat_free_mass_kg,  type: numeric,  required: false }
+      - { name: source,            type: text,     required: false }
+    usage:
+      documentation_only: true
+
+  - id: withings_first_of_day
+    purpose: diagnostic_first_of_day_with_protocol_tags
+    type: view
+    fq_name: public.withings_first_of_day
+    depends_on:
+      - public.withings_measurements_raw
+    keys:
+      - day_date
+    columns:
+      - { name: day_date,             type: date,                      required: false, desc: local calendar day }
+      - { name: selected_at_local,    type: "timestamp without time zone", required: false, desc: earliest local timestamp chosen }
+      - { name: is_late_weigh_in,     type: boolean,                   required: false, desc: true if selected after 09:00 local }
+      - { name: measurement_count,    type: bigint,                   required: false, desc: count of raw readings that day }
+      - { name: weight_kg,            type: numeric,                   required: false, desc: converted weight in kg }
+      - { name: fat_mass_kg,          type: numeric,                   required: false, desc: converted fat mass in kg }
+      - { name: fat_free_mass_kg,     type: numeric,                   required: false, desc: converted fat-free mass in kg }
+      - { name: source_file,          type: text,                      required: false, desc: CSV provenance label }
+      - { name: note,                 type: text,                      required: false, desc: user note if present }
+    freshness_sla: "daily by 09:00"
+    tests:
+      shape:
+        - not_null: [day_date]
+        - unique_keys: [[day_date]]
+    usage:
+      documentation_only: true
+
+contracts:
+  # Validate the three core inputs align by date before modeling
+  join_requirements:
+    - name: daily_alignment_core
+      left: withings_daily_valid.day_date
+      rights:
+        - nutrition_daily.day_date
+        - trainingpeaks_enriched.local_date
+      tolerance:
+        max_missing_dates_per_month: 3
+    - name: p0_alignment_core_dates
+      left: p0_staging.fact_date
+      rights:
+        - withings_daily_valid.day_date
+        - nutrition_daily.day_date
+      tolerance:
+        max_missing_dates_per_month: 3
+
+  # Fingerprint columns used by preflight introspection
+  fingerprints:
+    - id: core_shape
+      relations:
+        - withings_daily_valid
+        - nutrition_daily
+        - p0_staging
+        - p1_train_daily
+        - p1_test_daily
+      method: hash_column_names_types_order
+
+outputs:
+  # where we will log snapshots/checks (created when you greenlight code)
+  state_checks_table: analytics._state_checks
+  state_snapshot_table: analytics._state_snapshot
+
+policies:
+  versioning:
+    strategy: static_for_now   # upgrade later to immutable __vYYYY_MM_DD + __latest
+  failure_mode: fail_closed_pre_modeling
+  caching_key_includes: [fingerprints.core_shape]

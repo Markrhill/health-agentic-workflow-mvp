@@ -1,0 +1,14 @@
+# Final P1 parameters (train set: 2021-01-01..2024-12-31)
+m_kcal_per_day: 1630      # M
+compensation_c: 0.19      # C
+alpha_kcal_per_kg: 9800   # α
+window_days: 7
+
+# DB connection (override via env if you prefer)
+db:
+  host: localhost
+  port: 5432
+  user: markhill
+  password: ""            # or set P1_DB_PASSWORD in env
+  database: markhill
+  sslmode: disable
