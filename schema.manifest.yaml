@@ -169,6 +169,8 @@ relations:
       - { name: protein_g,             type: numeric,         required: false, desc: protein grams }
       - { name: carbs_g,               type: numeric,         required: false, desc: carbohydrate grams }
       - { name: fat_g,                 type: numeric,         required: false, desc: fat grams }
+      - { name: intake_is_imputed,     type: boolean,         required: false, desc: true if intake_kcal for this day is imputed }
+      - { name: imputation_method,     type: text,            required: false, desc: method used when intake_is_imputed=true (e.g., 'dow_median') }
       - { name: nutrition_is_observed, type: boolean,         required: false, desc: true if day is fully logged }
       - { name: workout_kcal,          type: integer,         required: false, desc: exercise kcal (sum of trainingpeaks_enriched) }
       - { name: weight_kg,             type: "numeric(10,3)", required: false, desc: daily weight (kg) }
@@ -186,6 +188,7 @@ relations:
         - range: { column: intake_kcal,  min: 500, max: 6000 }
         - range: { column: workout_kcal, min: 0,   max: 8000 }
         - range: { column: fat_mass_kg,  min: 20,  max: 60 }
+      # note: imputation consistency is enforced via contracts.imputation_flag_consistency
     usage:
       path_A: true
       path_B: true
@@ -513,7 +516,7 @@ relations:
       - { name: target_ftp_w,         type: integer, required: false, desc: FTP test target (W) }
       - { name: target_ave_watts,     type: integer, required: false, desc: realistic average watts to sustain for the climb }
       - { name: bike_weight_kg,       type: numeric, required: false, desc: bike + gear mass }
-      - { name: target_w_per_kg,      type: numeric, required: false, desc: system W/kg = target_ave_watts ÷ (target_weight_kg + bike_weight_kg) }
+      - { name: target_w_per_kg,      type: numeric, required: false, desc: W/kg computed as target_ave_watts ÷ (target_weight_kg + bike_weight_kg) }
       - { name: target_daily_deficit, type: integer, required: true,  desc: prescribed kcal/day deficit (default 500) }
       - { name: tss_ramp_plan,        type: jsonb,  required: false, desc: plan for weekly TSS progression }
       - { name: created_at,           type: timestamp with time zone, required: true }
@@ -526,14 +529,15 @@ relations:
     depends_on:
       - public.daily_facts
     keys:
-      - day_of_week
+      - dow_index
     columns:
+      - { name: dow_index,         type: integer, required: true,  desc: 1=Mon … 7=Sun for stable ordering }
       - { name: day_of_week,        type: text,    required: true,  desc: Monday..Sunday }
       - { name: intake_kcal_median, type: numeric, required: true,  desc: median intake_kcal for this day-of-week computed from daily_facts }
     freshness_sla: "recompute on demand"
     tests:
       shape:
-        - not_null: [day_of_week, intake_kcal_median]
+        - not_null: [dow_index, day_of_week, intake_kcal_median]
 
   # ---------- GOLD LAYER (DERIVED, PARAMETER-VERSIONED) ----------
   - id: model_params_timevarying
@@ -700,6 +704,12 @@ contracts:
         - daily_series_materialized.fact_date
       tolerance:
         max_missing_dates_per_month: 3
+    - name: imputation_flag_consistency
+      left: daily_facts.intake_is_imputed
+      rights:
+        - daily_facts.imputation_method
+      tolerance:
+        rule: "if intake_is_imputed=true then imputation_method IS NOT NULL"
     - name: weekly_snapshot_coverage
       left: weekly_coaching_snapshot.week_start
       rights:
