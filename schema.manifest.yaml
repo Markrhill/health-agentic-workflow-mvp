@@ -499,6 +499,135 @@ relations:
     usage:
       documentation_only: true
 
+  - id: performance_goals
+    purpose: forward_looking_goals_for_coach
+    type: table
+    fq_name: public.performance_goals
+    keys:
+      - goal_id
+    columns:
+      - { name: goal_id,              type: uuid,   required: true,  desc: unique identifier }
+      - { name: goal_name,            type: text,   required: true,  desc: descriptive label e.g. "Mount Diablo sub-60" }
+      - { name: target_date,          type: date,   required: true,  desc: goal completion date }
+      - { name: target_fat_mass_lb,   type: numeric, required: false, desc: optional fat mass target (lbs) }
+      - { name: target_weight_kg,     type: numeric, required: false, desc: optional weight goal }
+      - { name: target_ftp_w,         type: integer, required: false, desc: FTP test target (W) }
+      - { name: target_ave_watts,     type: integer, required: false, desc: realistic average watts to sustain for the climb }
+      - { name: bike_weight_kg,       type: numeric, required: false, desc: bike + gear mass }
+      - { name: target_w_per_kg,      type: numeric, required: false, desc: computed from target_ave_watts ÷ (target_weight_kg + bike_weight_kg) }
+      - { name: target_daily_deficit, type: integer, required: true,  desc: prescribed kcal/day deficit (default 500) }
+      - { name: tss_ramp_plan,        type: jsonb,  required: false, desc: plan for weekly TSS progression }
+      - { name: created_at,           type: timestamp with time zone, required: true }
+      - { name: updated_at,           type: timestamp with time zone, required: true }
+
+  # ---------- GOLD LAYER (DERIVED, PARAMETER-VERSIONED) ----------
+  - id: model_params_timevarying
+    purpose: versioned_model_parameters_effective_dated
+    type: table
+    fq_name: public.model_params_timevarying
+    keys:
+      - params_version
+    columns:
+      - { name: params_version,        type: text,                      required: true,  desc: opaque version id (e.g., v2025_09_01) }
+      - { name: effective_start_date,  type: date,                      required: true,  desc: first date (inclusive) this version applies }
+      - { name: effective_end_date,    type: date,                      required: false, desc: last date (inclusive); null = open-ended }
+      - { name: c_exercise_comp,       type: numeric,                   required: true,  desc: "exercise compensation factor c in [0,1]" }
+      - { name: alpha_fm,              type: numeric,                   required: true,  desc: EMA alpha for fat mass (kg) }
+      - { name: alpha_lbm,             type: numeric,                   required: true,  desc: EMA alpha for LBM used for BMR stability }
+      - { name: bmr0_kcal,             type: numeric,                   required: true,  desc: BMR intercept (kcal/day) }
+      - { name: k_lbm_kcal_per_kg,     type: numeric,                   required: true,  desc: BMR slope per kg of LBM }
+      - { name: kcal_per_kg_fat,       type: numeric,                   required: true,  desc: kcal-to-kg mapping for fat mass (e.g., 7700) }
+      - { name: method_notes,          type: text,                      required: false, desc: freeform notes / provenance }
+      - { name: approved_by,           type: text,                      required: false, desc: human approver }
+      - { name: approved_at,           type: "timestamp with time zone", required: false, desc: approval timestamp }
+    freshness_sla: "static catalog; insert on approval"
+    tests:
+      shape:
+        - not_null: [params_version, effective_start_date, c_exercise_comp, alpha_fm, alpha_lbm, bmr0_kcal, k_lbm_kcal_per_kg, kcal_per_kg_fat]
+        - unique_keys: [[params_version]]
+
+  - id: daily_series_materialized
+    purpose: derived_daily_series_for_ui_and_snapshots
+    type: table
+    fq_name: public.daily_series_materialized
+    keys:
+      - fact_date
+    columns:
+      - { name: fact_date,              type: date,            required: true,  desc: calendar day (local) }
+      - { name: params_version_used,    type: text,            required: true,  desc: params version applied when computing this row }
+      - { name: fat_mass_ema_kg,        type: "numeric(10,3)", required: true,  desc: EMA-smoothed fat mass (kg) }
+      - { name: lbm_ema_kg_for_bmr,     type: "numeric(10,3)", required: true,  desc: LBM used for BMR calc after light EMA }
+      - { name: bmr_kcal,               type: integer,         required: true,  desc: basal metabolic rate (kcal/day) }
+      - { name: adj_exercise_kcal,      type: integer,         required: true,  desc: (1 - c) * workout_kcal using params_version_used }
+      - { name: net_kcal,               type: integer,         required: true,  desc: intake_kcal - adj_exercise_kcal - bmr_kcal }
+      - { name: computed_at,            type: "timestamp with time zone", required: true,  desc: computation timestamp }
+      - { name: compute_run_id,         type: text,            required: false, desc: batch/run id for reproducibility }
+    freshness_sla: "daily by 09:00"
+    depends_on:
+      - public.daily_facts
+      - public.model_params_timevarying
+    tests:
+      shape:
+        - not_null: [fact_date, params_version_used, fat_mass_ema_kg, lbm_ema_kg_for_bmr, bmr_kcal, net_kcal]
+        - unique_keys: [[fact_date]]
+      semantic:
+        - range: { column: fat_mass_ema_kg, min: 10,  max: 60 }
+        - range: { column: bmr_kcal,        min: 900, max: 4000 }
+        - range: { column: net_kcal,        min: -5000, max: 3000 }
+
+  - id: weekly_coaching_snapshot
+    purpose: immutable_weekly_review_snapshot_mon_to_sun
+    type: table
+    fq_name: public.weekly_coaching_snapshot
+    keys:
+      - week_start
+    columns:
+      - { name: week_start,               type: date,            required: true,  desc: Monday (local) }
+      - { name: week_end,                 type: date,            required: true,  desc: Sunday (local) }
+      - { name: params_version_used,      type: text,            required: true,  desc: params version used for this snapshot }
+      - { name: avg_intake_kcal,          type: integer,         required: true,  desc: average intake over the week }
+      - { name: avg_adj_exercise_kcal,    type: integer,         required: true,  desc: average (1-c)*exercise over the week }
+      - { name: avg_bmr_kcal,             type: integer,         required: true,  desc: average BMR over the week }
+      - { name: avg_net_kcal,             type: integer,         required: true,  desc: average net kcal over the week }
+      - { name: days_on_target,           type: integer,         required: true,  desc: count of days with net <= -500 }
+      - { name: predicted_delta_fm_kg,    type: "numeric(10,3)", required: true,  desc: predicted fat mass change for the week }
+      - { name: uncertainty_kg,           type: "numeric(10,3)", required: true,  desc: uncertainty band (±) for predicted change }
+      - { name: observed_delta_fm_kg,     type: "numeric(10,3)", required: true,  desc: observed fat mass change (EMA Sun vs prior Sun) }
+      - { name: within_expected_range,    type: boolean,         required: true,  desc: true if observed within expected band }
+      - { name: decision,                 type: text,            required: true,  desc: Update / Within Noise / No Update }
+      - { name: completeness_pct,         type: "numeric(5,2)",  required: true,  desc: percent of days with sufficient data }
+      - { name: data_freeze_ts,           type: "timestamp with time zone", required: true,  desc: when this snapshot was computed }
+      - { name: reviewer,                 type: text,            required: false, desc: human reviewer id/email }
+      - { name: decision_notes,           type: text,            required: false, desc: rationale / notes }
+    freshness_sla: "written on Sunday review"
+    depends_on:
+      - public.daily_series_materialized
+      - public.model_params_timevarying
+    tests:
+      shape:
+        - not_null: [week_start, week_end, params_version_used, avg_net_kcal, days_on_target, predicted_delta_fm_kg, observed_delta_fm_kg, within_expected_range, decision, data_freeze_ts]
+        - unique_keys: [[week_start]]
+
+  - id: audit_hil
+    purpose: audit_log_human_in_loop_decisions
+    type: table
+    fq_name: public.audit_hil
+    keys:
+      - snapshot_week_start
+      - created_at
+    columns:
+      - { name: snapshot_week_start, type: date,                      required: true,  desc: FK to weekly_coaching_snapshot.week_start }
+      - { name: action,              type: text,                      required: true,  desc: Approve | Defer | ChangeParams }
+      - { name: actor,               type: text,                      required: true,  desc: user id or email }
+      - { name: rationale,           type: text,                      required: false, desc: freeform rationale }
+      - { name: previous_params_version, type: text,                  required: false, desc: params before change }
+      - { name: new_params_version,  type: text,                      required: false, desc: params after change (if any) }
+      - { name: created_at,          type: "timestamp with time zone", required: true,  desc: log timestamp }
+    freshness_sla: "append at time of decision"
+    tests:
+      shape:
+        - not_null: [snapshot_week_start, action, actor, created_at]
+
   - id: withings_first_of_day
     purpose: diagnostic_first_of_day_with_protocol_tags
     type: view
@@ -550,6 +679,12 @@ contracts:
         - nutrition_daily.day_date
       tolerance:
         max_missing_dates_per_month: 3
+    - name: daily_facts_has_series
+      left: daily_facts.fact_date
+      rights:
+        - daily_series_materialized.fact_date
+      tolerance:
+        max_missing_dates_per_month: 3
 
   # Fingerprint columns used by preflight introspection
   fingerprints:
@@ -561,6 +696,10 @@ contracts:
         - p1_train_daily
         - p1_test_daily
         - daily_facts
+        - model_params_timevarying
+        - daily_series_materialized
+        - weekly_coaching_snapshot
+        - audit_hil
       method: hash_column_names_types_order
 
 outputs:
