@@ -185,7 +185,7 @@ relations:
       semantic:
         - range: { column: intake_kcal,  min: 500, max: 6000 }
         - range: { column: workout_kcal, min: 0,   max: 8000 }
-        - range: { column: fat_mass_kg,  min: 10,  max: 40 }
+        - range: { column: fat_mass_kg,  min: 20,  max: 60 }
     usage:
       path_A: true
       path_B: true
@@ -234,6 +234,8 @@ relations:
       shape:
         - not_null: [fact_date, intake_kcal]
         - unique_keys: [[fact_date]]
+    usage:
+      one_time_analysis: true
 
   - id: p0_staging
     purpose: modeling_staging_daily
@@ -256,6 +258,8 @@ relations:
         - range: { column: fat_mass_kg,  min: 20,  max: 60 }
         - range: { column: intake_kcal,  min: 500, max: 6000 }
         - range: { column: workout_kcal, min: 0,   max: 8000 }
+    usage:
+      one_time_analysis: true
 
   - id: p1_train_daily
     purpose: modeling_train_split_2021_2024
@@ -274,8 +278,7 @@ relations:
       - { name: weight_kg,     type: "numeric(10,3)", required: false }
     time_range: { start: "2021-01-01", end: "2024-12-31" }
     usage:
-      path_A: true
-      path_B: true
+      one_time_analysis: true
 
   - id: p1_test_daily
     purpose: modeling_test_split_2025_ytd
@@ -294,8 +297,7 @@ relations:
       - { name: weight_kg,     type: "numeric(10,3)", required: false }
     time_range: { start: "2025-01-01", end: "current" }
     usage:
-      path_A: true
-      path_B: true
+      one_time_analysis: true
 
   # ---------- MODELING WINDOWS (GENERATED) ----------
   - id: p1_train_windows_flex7
@@ -321,8 +323,7 @@ relations:
       - { name: is_9d,             type: boolean, required: false,  desc: true if exactly 9-day window }
     time_range: { start: "2021-01-01", end: "2024-12-31" }
     usage:
-      path_A: true
-      path_B: true
+      one_time_analysis: true
 
   - id: p1_test_windows_flex7
     purpose: modeling_test_windows_flexible_7d
@@ -347,8 +348,7 @@ relations:
       - { name: is_9d,             type: boolean, required: false,  desc: true if exactly 9-day window }
     time_range: { start: "2025-01-01", end: "current" }
     usage:
-      path_A: true
-      path_B: true
+      one_time_analysis: true
 
   - id: p1_fm_clean
     purpose: modeling_cleaned_fat_mass_daily
@@ -365,8 +365,7 @@ relations:
       semantic:
         - range: { column: fat_mass_kg, min: 20, max: 60 }
     usage:
-      path_A: true
-      path_B: true
+      one_time_analysis: true
 
   # ---------- RICH RAW SOURCES (DOCUMENTED, NOT USED TODAY) ----------
   - id: nutrition_meals
@@ -520,6 +519,22 @@ relations:
       - { name: created_at,           type: timestamp with time zone, required: true }
       - { name: updated_at,           type: timestamp with time zone, required: true }
 
+  - id: facts_intake_dow_medians
+    purpose: support_intake_imputation_by_day_of_week
+    type: view
+    fq_name: public.facts_intake_dow_medians
+    depends_on:
+      - public.daily_facts
+    keys:
+      - day_of_week
+    columns:
+      - { name: day_of_week,        type: text,    required: true,  desc: Monday..Sunday }
+      - { name: intake_kcal_median, type: numeric, required: true,  desc: median intake_kcal for this day-of-week computed from daily_facts }
+    freshness_sla: "recompute on demand"
+    tests:
+      shape:
+        - not_null: [day_of_week, intake_kcal_median]
+
   # ---------- GOLD LAYER (DERIVED, PARAMETER-VERSIONED) ----------
   - id: model_params_timevarying
     purpose: versioned_model_parameters_effective_dated
@@ -559,7 +574,7 @@ relations:
       - { name: lbm_ema_kg_for_bmr,     type: "numeric(10,3)", required: true,  desc: LBM used for BMR calc after light EMA }
       - { name: bmr_kcal,               type: integer,         required: true,  desc: basal metabolic rate (kcal/day) }
       - { name: adj_exercise_kcal,      type: integer,         required: true,  desc: (1 - c) * workout_kcal using params_version_used }
-      - { name: net_kcal,               type: integer,         required: true,  desc: intake_kcal - adj_exercise_kcal - bmr_kcal }
+      - { name: net_kcal,               type: integer,         required: true,  desc: intake_kcal - (1 - c) * workout_kcal - (bmr0_kcal + lbm_ema_kg_for_bmr * k_lbm_kcal_per_kg) }
       - { name: computed_at,            type: "timestamp with time zone", required: true,  desc: computation timestamp }
       - { name: compute_run_id,         type: text,            required: false, desc: batch/run id for reproducibility }
     freshness_sla: "daily by 09:00"
@@ -594,7 +609,7 @@ relations:
       - { name: uncertainty_kg,           type: "numeric(10,3)", required: true,  desc: uncertainty band (±) for predicted change }
       - { name: observed_delta_fm_kg,     type: "numeric(10,3)", required: true,  desc: observed fat mass change (EMA Sun vs prior Sun) }
       - { name: within_expected_range,    type: boolean,         required: true,  desc: true if observed within expected band }
-      - { name: decision,                 type: text,            required: true,  desc: Update / Within Noise / No Update }
+      - { name: decision,                 type: text,            required: true,  desc: Approve | Within Noise | Investigate }
       - { name: completeness_pct,         type: "numeric(5,2)",  required: true,  desc: percent of days with sufficient data }
       - { name: data_freeze_ts,           type: "timestamp with time zone", required: true,  desc: when this snapshot was computed }
       - { name: reviewer,                 type: text,            required: false, desc: human reviewer id/email }
@@ -685,6 +700,12 @@ contracts:
         - daily_series_materialized.fact_date
       tolerance:
         max_missing_dates_per_month: 3
+    - name: weekly_snapshot_coverage
+      left: weekly_coaching_snapshot.week_start
+      rights:
+        - daily_series_materialized.fact_date
+      tolerance:
+        min_days_present_in_week: 6
 
   # Fingerprint columns used by preflight introspection
   fingerprints:
