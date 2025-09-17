@@ -1,4 +1,48 @@
 # schema.manifest.yaml
+# -----------------------------------------------------------------------------
+# Visual lineage (for humans) — source ➜ transforms ➜ modeling
+# Render with any Mermaid viewer; kept as comments to avoid breaking YAML.
+#
+# ```mermaid
+# graph TD
+#   subgraph Sources
+#     WRAW[withings_measurements_raw]\n(CSV ingest) 
+#     MFP[nutrition_meals]\n(MFP CSVs)
+#     TPRAW[trainingpeaks_workouts_raw]\n(TP export)
+#   end
+#
+#   subgraph Transforms
+#     WFIRST[withings_daily_first]\n(first-of-day selection)
+#     WVALID[withings_daily_valid]\n(validated daily fat mass)
+#     NDAY[nutrition_daily]\n(daily kcal + macros)
+#     TPENR[trainingpeaks_enriched]\n(per-workout kcal + enrich)
+#   end
+#
+#   subgraph Modeling
+#     P0[p0_staging]\n(daily intake/workout + body comp)
+#     P1TR[p1_train_daily]\n(2021–2024)
+#     P1TE[p1_test_daily]\n(2025 YTD)
+#     WINTR[p1_train_windows_flex7]\n(7–9d windows)
+#     WINTE[p1_test_windows_flex7]\n(7–9d windows)
+#   end
+#
+#   %% flows
+#   WRAW --> WFIRST --> WVALID --> P0
+#   MFP  --> NDAY   --> P0
+#   TPRAW--> TPENR  --> P0
+#   P0   --> P1TR --> WINTR
+#   P0   --> P1TE --> WINTE
+#
+#   %% Diagnostics (dashed)
+#   WRAW -.-> FOD[withings_first_of_day]\n(diagnostic view)
+# ```
+#
+# Notes:
+# - `withings_daily_valid` depends on `withings_daily_first` per schema.
+# - `withings_first_of_day` is diagnostic only; not used in modeling joins.
+# - `daily_facts` sits between Transforms and Modeling, fed by `withings_daily_valid`,
+#   `nutrition_daily`, and a daily aggregation of `trainingpeaks_enriched`.
+# -----------------------------------------------------------------------------
 version: 0.1
 warehouse:
   engine: postgres
@@ -9,6 +53,7 @@ owners:
   - name: Mark Hill
     role: data-product-owner
 slas:
+
   default_freshness: "daily by 09:00 local"
 
 relations:
@@ -107,6 +152,42 @@ relations:
         - range: { column: energy_kcal, min: 0, max: 8000 }
     usage:
       # Note: per-workout rows; daily aggregation is provided via p0_staging.workout_kcal
+      path_B: true
+
+  - id: daily_facts
+    purpose: canonical_daily_facts_surface
+    type: table
+    fq_name: public.daily_facts
+    depends_on:
+      - public.withings_daily_valid
+      - public.nutrition_daily
+      - public.trainingpeaks_enriched
+    keys: [fact_date]
+    columns:
+      - { name: fact_date,             type: date,            required: true,  desc: calendar day (local) }
+      - { name: intake_kcal,           type: integer,         required: false, desc: daily intake kcal (from nutrition_daily) }
+      - { name: protein_g,             type: numeric,         required: false, desc: protein grams }
+      - { name: carbs_g,               type: numeric,         required: false, desc: carbohydrate grams }
+      - { name: fat_g,                 type: numeric,         required: false, desc: fat grams }
+      - { name: nutrition_is_observed, type: boolean,         required: false, desc: true if day is fully logged }
+      - { name: workout_kcal,          type: integer,         required: false, desc: exercise kcal (sum of trainingpeaks_enriched) }
+      - { name: weight_kg,             type: "numeric(10,3)", required: false, desc: daily weight (kg) }
+      - { name: fat_mass_kg,           type: "numeric(10,3)", required: false, desc: Withings fat mass (kg), earliest-of-day }
+      - { name: fat_free_mass_kg,      type: "numeric(10,3)", required: false, desc: fat-free mass (kg) }
+      - { name: muscle_mass_kg,        type: "numeric(10,3)", required: false, desc: muscle mass (kg) }
+      - { name: hydration_kg,          type: "numeric(10,3)", required: false, desc: body water (kg) }
+      - { name: bone_mass_kg,          type: "numeric(10,3)", required: false, desc: bone mass (kg) }
+    freshness_sla: "daily by 09:00"
+    tests:
+      shape:
+        - not_null: [fact_date]
+        - unique_keys: [[fact_date]]
+      semantic:
+        - range: { column: intake_kcal,  min: 500, max: 6000 }
+        - range: { column: workout_kcal, min: 0,   max: 8000 }
+        - range: { column: fat_mass_kg,  min: 10,  max: 40 }
+    usage:
+      path_A: true
       path_B: true
 
   - id: withings_daily_first
@@ -447,6 +528,14 @@ relations:
 contracts:
   # Validate the three core inputs align by date before modeling
   join_requirements:
+    - name: daily_facts_alignment_core
+      left: daily_facts.fact_date
+      rights:
+        - withings_daily_valid.day_date
+        - nutrition_daily.day_date
+        - trainingpeaks_enriched.local_date
+      tolerance:
+        max_missing_dates_per_month: 3
     - name: daily_alignment_core
       left: withings_daily_valid.day_date
       rights:
@@ -471,6 +560,7 @@ contracts:
         - p0_staging
         - p1_train_daily
         - p1_test_daily
+        - daily_facts
       method: hash_column_names_types_order
 
 outputs:
