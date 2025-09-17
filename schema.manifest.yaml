@@ -513,7 +513,7 @@ relations:
       - { name: target_ftp_w,         type: integer, required: false, desc: FTP test target (W) }
       - { name: target_ave_watts,     type: integer, required: false, desc: realistic average watts to sustain for the climb }
       - { name: bike_weight_kg,       type: numeric, required: false, desc: bike + gear mass }
-      - { name: target_w_per_kg,      type: numeric, required: false, desc: computed from target_ave_watts ÷ (target_weight_kg + bike_weight_kg) }
+      - { name: target_w_per_kg,      type: numeric, required: false, desc: system W/kg = target_ave_watts ÷ (target_weight_kg + bike_weight_kg) }
       - { name: target_daily_deficit, type: integer, required: true,  desc: prescribed kcal/day deficit (default 500) }
       - { name: tss_ramp_plan,        type: jsonb,  required: false, desc: plan for weekly TSS progression }
       - { name: created_at,           type: timestamp with time zone, required: true }
@@ -572,9 +572,9 @@ relations:
       - { name: params_version_used,    type: text,            required: true,  desc: params version applied when computing this row }
       - { name: fat_mass_ema_kg,        type: "numeric(10,3)", required: true,  desc: EMA-smoothed fat mass (kg) }
       - { name: lbm_ema_kg_for_bmr,     type: "numeric(10,3)", required: true,  desc: LBM used for BMR calc after light EMA }
-      - { name: bmr_kcal,               type: integer,         required: true,  desc: basal metabolic rate (kcal/day) }
+      - { name: bmr_kcal,               type: integer,         required: true,  desc: basal metabolic rate (kcal/day), computed as bmr0_kcal + k_lbm_kcal_per_kg * lbm_ema_kg_for_bmr for params_version_used }
       - { name: adj_exercise_kcal,      type: integer,         required: true,  desc: (1 - c) * workout_kcal using params_version_used }
-      - { name: net_kcal,               type: integer,         required: true,  desc: intake_kcal - (1 - c) * workout_kcal - (bmr0_kcal + lbm_ema_kg_for_bmr * k_lbm_kcal_per_kg) }
+      - { name: net_kcal,               type: integer,         required: true,  desc: intake_kcal - adj_exercise_kcal - bmr_kcal }
       - { name: computed_at,            type: "timestamp with time zone", required: true,  desc: computation timestamp }
       - { name: compute_run_id,         type: text,            required: false, desc: batch/run id for reproducibility }
     freshness_sla: "daily by 09:00"
