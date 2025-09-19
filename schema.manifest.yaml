@@ -170,7 +170,7 @@ relations:
       - { name: carbs_g,               type: numeric,         required: false, desc: carbohydrate grams }
       - { name: fat_g,                 type: numeric,         required: false, desc: fat grams }
       - { name: intake_is_imputed,     type: boolean,         required: false, desc: true if intake_kcal for this day is imputed }
-      - { name: imputation_method,     type: text,            required: false, desc: method used when intake_is_imputed=true (e.g., 'dow_median') }
+      - { name: imputation_method,     type: text,            required: false, desc: "method used when intake_is_imputed=true (e.g., 'dow_median')" }
       - { name: nutrition_is_observed, type: boolean,         required: false, desc: true if day is fully logged }
       - { name: workout_kcal,          type: integer,         required: false, desc: exercise kcal (sum of trainingpeaks_enriched) }
       - { name: weight_kg,             type: "numeric(10,3)", required: false, desc: daily weight (kg) }
@@ -179,6 +179,9 @@ relations:
       - { name: muscle_mass_kg,        type: "numeric(10,3)", required: false, desc: muscle mass (kg) }
       - { name: hydration_kg,          type: "numeric(10,3)", required: false, desc: body water (kg) }
       - { name: bone_mass_kg,          type: "numeric(10,3)", required: false, desc: bone mass (kg) }
+      - { name: season,                type: text,            required: false, desc: Spring/Summer/Fall/Winter }
+      - { name: is_holiday,            type: boolean,         required: false, desc: holiday period flag }
+      - { name: travel_status,         type: text,            required: false, desc: home/traveling/remote }
     freshness_sla: "daily by 09:00"
     tests:
       shape:
@@ -188,6 +191,10 @@ relations:
         - range: { column: intake_kcal,  min: 500, max: 6000 }
         - range: { column: workout_kcal, min: 0,   max: 8000 }
         - range: { column: fat_mass_kg,  min: 20,  max: 60 }
+        - range: { column: data_quality_score, min: 0.0, max: 1.0 }
+        - range: { column: goal_progress_pct, min: 0.0, max: 100.0 }
+        - range: { column: prediction_accuracy, min: 0.0, max: 1.0 }
+        - range: { column: model_confidence, min: 0.0, max: 1.0 }
       # note: imputation consistency is enforced via contracts.imputation_flag_consistency
     usage:
       path_A: true
@@ -615,6 +622,15 @@ relations:
       - { name: within_expected_range,    type: boolean,         required: true,  desc: true if observed within expected band }
       - { name: decision,                 type: text,            required: true,  desc: Approve | Within Noise | Investigate }
       - { name: completeness_pct,         type: "numeric(5,2)",  required: true,  desc: percent of days with sufficient data }
+      - { name: imputed_days_count,       type: integer,         required: false, desc: count of days with imputed intake }
+      - { name: imputation_summary,       type: text,            required: false, desc: summary of imputation methods used }
+      - { name: data_quality_score,       type: "numeric(3,2)",  required: false, desc: data quality score 0.0-1.0 }
+      - { name: missing_data_flags,       type: jsonb,           required: false, desc: specific data quality issues }
+      - { name: prediction_accuracy,      type: "numeric(5,4)",  required: false, desc: how close prediction was to observed }
+      - { name: model_confidence,         type: "numeric(5,4)",  required: false, desc: confidence in the prediction }
+      - { name: active_goal_id,           type: uuid,            required: false, desc: FK to performance_goals }
+      - { name: goal_progress_pct,        type: "numeric(5,2)",  required: false, desc: progress toward goal }
+      - { name: weeks_remaining,          type: integer,         required: false, desc: weeks until target date }
       - { name: data_freeze_ts,           type: "timestamp with time zone", required: true,  desc: when this snapshot was computed }
       - { name: reviewer,                 type: text,            required: false, desc: human reviewer id/email }
       - { name: decision_notes,           type: text,            required: false, desc: rationale / notes }
@@ -622,6 +638,7 @@ relations:
     depends_on:
       - public.daily_series_materialized
       - public.model_params_timevarying
+      - public.performance_goals
     tests:
       shape:
         - not_null: [week_start, week_end, params_version_used, avg_net_kcal, days_on_target, predicted_delta_fm_kg, observed_delta_fm_kg, within_expected_range, decision, data_freeze_ts]
@@ -710,6 +727,13 @@ contracts:
         - daily_facts.imputation_method
       tolerance:
         rule: "if intake_is_imputed=true then imputation_method IS NOT NULL"
+    - name: goal_progress_consistency
+      left: weekly_coaching_snapshot.active_goal_id
+      rights:
+        - weekly_coaching_snapshot.goal_progress_pct
+        - weekly_coaching_snapshot.weeks_remaining
+      tolerance:
+        rule: "if active_goal_id IS NOT NULL then goal_progress_pct IS NOT NULL AND weeks_remaining IS NOT NULL"
     - name: weekly_snapshot_coverage
       left: weekly_coaching_snapshot.week_start
       rights:

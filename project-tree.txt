@@ -1,0 +1,25 @@
+.
+- .git
+- .vscode
+- backend
+- - api
+- - ingest
+- - models
+- config
+- data
+- - archive
+- docs
+- - adr
+- - img
+- figures
+- ml
+- models
+- notebooks
+- scripts
+- sql
+- - migrations
+- tests
+- - pg
+- - py
+- tools
+- - __pycache__

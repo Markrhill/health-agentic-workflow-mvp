@@ -25,6 +25,8 @@ The main interface shows the current week's progress:
 - **Green**: Within expected range
 - **Yellow**: Requires investigation
 - **Red**: Significant deviation from prediction
+- **Asterisk (*)**: Indicates any day's intake was imputed
+  - **Tooltip**: Shows day-of-week median source (e.g., "Monday median: 2,100 kcal")
 
 ### Goal Setting Interface
 Users can set and track performance goals:
@@ -69,10 +71,16 @@ Users can set and track performance goals:
 ## 📊 Data Visualization
 
 ### Weekly Trends
-- **Fat Mass**: EMA-smoothed trend line
+- **Fat Mass**: 13-week trend with EMA α_fm and 14-day rolling residual SD ribbon
 - **Net Calories**: Daily balance with weekly average
 - **Exercise**: Workout calories and intensity
 - **Intake**: Calorie consumption patterns
+
+### Weekly Bar Chart
+- **Intake Bars**: Daily calorie intake (↑ bars)
+- **Exercise Bars**: Daily exercise calories net of compensation factor c (↓ bars)
+- **Net Line**: Daily net calorie balance (line graph)
+- **Target Band**: Green band from 0 to -500 kcal (deficit target zone)
 
 ### Performance Metrics
 - **W/kg Progress**: Power-to-weight ratio trends
@@ -93,6 +101,15 @@ When investigation is needed:
 - **BMR Parameters**: Update metabolic rate calculations
 - **Imputation Methods**: Change missing data handling
 
+### "See Parameters" Modal
+Displays current model parameters for transparency:
+- **Exercise Compensation (c)**: Current compensation factor
+- **EMA Parameters**: 
+  - α_fm = 0.25 (fat mass smoothing)
+  - α_lbm = 0.10 (lean body mass smoothing)
+- **BMR Parameters**: Basal metabolic rate calculation coefficients
+- **Energy Density**: kcal/kg conversion factor
+
 ### Goal Management
 - **Add Goals**: Set new performance targets
 - **Modify Goals**: Adjust existing targets
@@ -103,6 +120,13 @@ When investigation is needed:
 - **Imputation Review**: Check and correct imputed data
 - **Quality Flags**: Review data quality issues
 - **Source Validation**: Verify data from different sources
+
+### Dynamic Content
+- **Bullets Copy**: Dynamic text based on current data state
+  - "On track for 0.5kg loss this week"
+  - "Need 200 more kcal deficit to meet target"
+  - "Exercise compensation may be too high"
+  - "Consider adjusting intake for better consistency"
 
 ## 🔍 Decision Support
 

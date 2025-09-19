@@ -1,0 +1,116 @@
+const { getPool } = require('./connection');
+
+// Get current parameters
+const getCurrentParameters = async () => {
+  const pool = getPool();
+  const query = `
+    SELECT 
+      params_version,
+      effective_start_date,
+      alpha_fm,
+      alpha_lbm,
+      c_exercise_comp,
+      bmr0_kcal,
+      k_lbm_kcal_per_kg,
+      kcal_per_kg_fat
+    FROM model_params_timevarying 
+    WHERE effective_start_date <= CURRENT_DATE
+    ORDER BY effective_start_date DESC 
+    LIMIT 1
+  `;
+  const result = await pool.query(query);
+  return result.rows[0];
+};
+
+// Get weekly data for UI
+const getWeeklyData = async (limit = 10) => {
+  const pool = getPool();
+  const query = `
+    SELECT 
+      DATE_TRUNC('week', dsm.fact_date)::date + 1 as week_start_monday,
+      COUNT(*) as days_in_week,
+      AVG(dsm.fat_mass_ema_kg) as avg_fat_mass_ema,
+      AVG(dsm.net_kcal) as avg_net_kcal,
+      SUM(df.intake_kcal) as total_intake,
+      SUM(dsm.adj_exercise_kcal) as total_adj_exercise,
+      COUNT(CASE WHEN df.intake_is_imputed = true THEN 1 END) as imputed_days,
+      MIN(dsm.params_version_used) as params_version,
+      MIN(dsm.computed_at) as computed_at
+    FROM daily_series_materialized dsm
+    JOIN daily_facts df ON dsm.fact_date = df.fact_date
+    WHERE dsm.fact_date >= '2025-01-01'
+    GROUP BY DATE_TRUNC('week', dsm.fact_date)
+    ORDER BY week_start_monday DESC
+    LIMIT $1
+  `;
+  const result = await pool.query(query, [limit]);
+  return result.rows;
+};
+
+// Get daily data for specific week
+const getDailyDataForWeek = async (startDate, endDate) => {
+  const pool = getPool();
+  const query = `
+    -- Factory Rule: Daily data with parameter table as single source of truth
+    WITH current_params AS (
+        SELECT alpha_fm, c_exercise_comp as c, kcal_per_kg_fat, bmr0_kcal, k_lbm_kcal_per_kg
+        FROM model_params_timevarying 
+        WHERE effective_start_date <= $2::date
+        ORDER BY effective_start_date DESC 
+        LIMIT 1
+    )
+    SELECT 
+        dsm.fact_date,
+        EXTRACT(DOW FROM dsm.fact_date) as day_of_week,
+        TO_CHAR(dsm.fact_date, 'Day') as day_name,
+        dsm.fat_mass_ema_kg * 2.20462 as fat_mass_ema_lbs,
+        dsm.net_kcal,
+        df.intake_kcal,
+        df.workout_kcal as raw_exercise_kcal,
+        dsm.adj_exercise_kcal as compensated_exercise_kcal,
+        df.intake_is_imputed,
+        df.imputation_method,
+        dsm.params_version_used,
+        ABS(df.fat_mass_kg * 2.20462 - dsm.fat_mass_ema_kg * 2.20462) as fat_mass_uncertainty_lbs,
+        df.fat_mass_kg * 2.20462 as raw_fat_mass_lbs,
+        dsm.bmr_kcal,
+        cp.alpha_fm,
+        cp.c as compensation_factor,
+        cp.kcal_per_kg_fat
+    FROM daily_series_materialized dsm
+    JOIN daily_facts df ON dsm.fact_date = df.fact_date
+    CROSS JOIN current_params cp
+    WHERE dsm.fact_date >= $1::date
+      AND dsm.fact_date <= $2::date
+    ORDER BY dsm.fact_date;
+  `;
+  
+  const result = await pool.query(query, [startDate, endDate]);
+  return result.rows;
+};
+
+// Get health metrics summary
+const getHealthMetricsSummary = async () => {
+  const pool = getPool();
+  const query = `
+    SELECT 
+      COUNT(*) as total_days,
+      MIN(fact_date) as earliest_date,
+      MAX(fact_date) as latest_date,
+      AVG(fat_mass_ema_kg) as avg_fat_mass_kg,
+      AVG(net_kcal) as avg_net_kcal,
+      COUNT(CASE WHEN intake_is_imputed = true THEN 1 END) as imputed_days_count
+    FROM daily_series_materialized dsm
+    JOIN daily_facts df ON dsm.fact_date = df.fact_date
+    WHERE dsm.fact_date >= CURRENT_DATE - INTERVAL '30 days'
+  `;
+  const result = await pool.query(query);
+  return result.rows[0];
+};
+
+module.exports = {
+  getCurrentParameters,
+  getWeeklyData,
+  getDailyDataForWeek,
+  getHealthMetricsSummary
+};

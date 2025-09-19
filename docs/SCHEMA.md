@@ -18,10 +18,8 @@ The schema is designed to support a health coaching workflow with:
 - `nutrition_meals` - MyFitnessPal meal data
 - `trainingpeaks_workouts_raw` - TrainingPeaks workout data
 
-### Staging & Processing
-- `daily_facts` - Canonical daily facts surface
-- `p0_staging` - Modeling staging area
-- `p1_train_daily` / `p1_test_daily` - Train/test splits
+### Core Data Surface
+- `daily_facts` - Canonical daily facts surface (CURRENT)
 
 ### Coaching & Parameters
 - `model_params_timevarying` - Versioned model parameters
