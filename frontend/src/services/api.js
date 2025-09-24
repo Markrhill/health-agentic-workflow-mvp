@@ -36,8 +36,8 @@ const apiRequest = async (endpoint, options = {}) => {
 };
 
 // API methods - simplified to match actual backend routes
-export const getWeeklyData = (limit = 10) => {
-  return apiRequest(`/weekly?limit=${limit}`);
+export const getWeeklyData = (weeks = 10) => {
+  return apiRequest(`/weekly?weeks=${weeks}`);
 };
 
 export const getDailyData = (startDate, endDate) => {
