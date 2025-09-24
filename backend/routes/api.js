@@ -7,6 +7,15 @@ const {
   getHealthMetricsSummary
 } = require('../database/queries');
 
+// Health check endpoint
+router.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    service: 'health-agentic-workflow-backend'
+  });
+});
+
 // Get current model parameters
 router.get('/parameters', async (req, res) => {
   try {

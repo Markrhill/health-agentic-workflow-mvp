@@ -60,30 +60,33 @@ const getDailyDataForWeek = async (startDate, endDate) => {
         ORDER BY effective_start_date DESC 
         LIMIT 1
     )
+    -- Includes fiber_g for nutrition tracking
     SELECT 
-        dsm.fact_date,
-        EXTRACT(DOW FROM dsm.fact_date) as day_of_week,
-        TO_CHAR(dsm.fact_date, 'Day') as day_name,
+        df.fact_date,
+        EXTRACT(DOW FROM df.fact_date) as day_of_week,
+        TO_CHAR(df.fact_date, 'Day') as day_name,
         dsm.fat_mass_ema_kg * 2.20462 as fat_mass_ema_lbs,
         dsm.net_kcal,
-        0 as intake_kcal,  -- Placeholder since intake data not available
-        0 as raw_exercise_kcal,  -- Placeholder since exercise data not available
+        df.intake_kcal,
+        df.workout_kcal as raw_exercise_kcal,
         dsm.adj_exercise_kcal as compensated_exercise_kcal,
-        false as intake_is_imputed,  -- Placeholder
-        'none' as imputation_method,  -- Placeholder
+        df.intake_is_imputed,
+        df.imputation_method,
         dsm.params_version_used,
         0 as fat_mass_uncertainty_lbs,  -- Placeholder
-        dsm.fat_mass_ema_kg * 2.20462 as raw_fat_mass_lbs,
+        df.fat_mass_kg * 2.20462 as raw_fat_mass_lbs,
         dsm.bmr_kcal,
         cp.alpha_fm,
         cp.c as compensation_factor,
         cp.kcal_per_kg_fat,
-        dsm.fiber_g
-    FROM daily_series_materialized dsm
+        df.protein_g,
+        df.fiber_g
+    FROM daily_facts df
+    LEFT JOIN daily_series_materialized dsm ON df.fact_date = dsm.fact_date
     CROSS JOIN current_params cp
-    WHERE dsm.fact_date >= $1::date
-      AND dsm.fact_date <= $2::date
-    ORDER BY dsm.fact_date;
+    WHERE df.fact_date >= $1::date
+      AND df.fact_date <= $2::date
+    ORDER BY df.fact_date;
   `;
   
   const result = await pool.query(query, [startDate, endDate]);

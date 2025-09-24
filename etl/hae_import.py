@@ -13,6 +13,46 @@ from typing import Dict, List
 # Load environment variables
 load_dotenv()
 
+def validate_field_mapping(conn, import_id):
+    """Factory Rule: Validate field mapping completeness after import"""
+    query = """
+    SELECT 
+        COUNT(DISTINCT date) as total_days,
+        COUNT(DISTINCT CASE WHEN metric_name = 'fiber' THEN date END) as fiber_days,
+        COUNT(DISTINCT CASE WHEN metric_name = 'protein' THEN date END) as protein_days,
+        COUNT(DISTINCT CASE WHEN metric_name = 'dietary_energy' THEN date END) as energy_days,
+        COUNT(DISTINCT CASE WHEN metric_name = 'carbohydrates' THEN date END) as carb_days,
+        COUNT(DISTINCT CASE WHEN metric_name = 'total_fat' THEN date END) as fat_days
+    FROM hae_metrics_parsed 
+    WHERE import_id = %s
+    """
+    
+    with conn.cursor() as cur:
+        cur.execute(query, (import_id,))
+        result = cur.fetchone()
+        
+    total_days, fiber_days, protein_days, energy_days, carb_days, fat_days = result
+    
+    print(f"Field mapping validation for import {import_id}:")
+    print(f"  Total days: {total_days}")
+    print(f"  Fiber coverage: {fiber_days}/{total_days} ({fiber_days/total_days*100:.1f}%)")
+    print(f"  Protein coverage: {protein_days}/{total_days} ({protein_days/total_days*100:.1f}%)")
+    print(f"  Energy coverage: {energy_days}/{total_days} ({energy_days/total_days*100:.1f}%)")
+    print(f"  Carbohydrates coverage: {carb_days}/{total_days} ({carb_days/total_days*100:.1f}%)")
+    print(f"  Fat coverage: {fat_days}/{total_days} ({fat_days/total_days*100:.1f}%)")
+    
+    # Alert if critical fields are missing
+    if fiber_days < total_days * 0.9:  # 90% threshold
+        print(f"⚠️  WARNING: Fiber data missing for {total_days - fiber_days} days")
+    if protein_days < total_days * 0.9:
+        print(f"⚠️  WARNING: Protein data missing for {total_days - protein_days} days")
+    if energy_days < total_days * 0.9:
+        print(f"⚠️  WARNING: Energy data missing for {total_days - energy_days} days")
+    if carb_days < total_days * 0.9:
+        print(f"⚠️  WARNING: Carbohydrates data missing for {total_days - carb_days} days")
+    if fat_days < total_days * 0.9:
+        print(f"⚠️  WARNING: Fat data missing for {total_days - fat_days} days")
+
 def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
     """
     Import HAE file with controlled overwrites
@@ -30,8 +70,17 @@ def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
     with open(file_path) as f:
         data = json.load(f)
     
-    # Extract date range from filename
+    # Start audit logging
     filename = Path(file_path).name
+    cur = conn.cursor()
+    
+    # Log import start
+    cur.execute("SELECT log_import_start(%s, %s, %s)", 
+                ('hae', filename, len(data.get('data', {}).get('metrics', []))))
+    audit_id = cur.fetchone()[0]
+    print(f"Started audit log: audit_id {audit_id}")
+    
+    # Extract date range from filename
     parts = filename.replace('HealthAutoExport-', '').replace('.json', '').split('-')
     start_date = f"{parts[0]}-{parts[1]}-{parts[2]}"
     end_date = f"{parts[3]}-{parts[4]}-{parts[5]}"
@@ -42,17 +91,54 @@ def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
     cur.execute("SELECT import_id FROM hae_raw WHERE file_name = %s", (filename,))
     existing = cur.fetchone()
     if existing:
-        print(f"File {filename} already imported as import_id {existing[0]}")
-        return existing[0]
+        if overwrite_mode == 'overwrite':
+            import_id = existing[0]
+            print(f"Re-processing {filename} in overwrite mode (import_id {import_id})")
+            # Continue to process, don't return
+        else:
+            print(f"File {filename} already imported as import_id {existing[0]}")
+            return existing[0]
     
-    # Insert raw
-    cur.execute("""
-        INSERT INTO hae_raw (file_name, date_range_start, date_range_end, raw_json)
-        VALUES (%s, %s, %s, %s)
-        RETURNING import_id
-    """, (filename, start_date, end_date, json.dumps(data)))
+    # Insert or update raw data
+    if overwrite_mode == 'overwrite' and existing:
+        # Update existing record
+        cur.execute("""
+            UPDATE hae_raw 
+            SET date_range_start = %s, date_range_end = %s, raw_json = %s, ingested_at = CURRENT_TIMESTAMP
+            WHERE import_id = %s
+        """, (start_date, end_date, json.dumps(data), import_id))
+    else:
+        # Insert new record
+        cur.execute("""
+            INSERT INTO hae_raw (file_name, date_range_start, date_range_end, raw_json)
+            VALUES (%s, %s, %s, %s)
+            RETURNING import_id
+        """, (filename, start_date, end_date, json.dumps(data)))
+        
+        import_id = cur.fetchone()[0]
     
-    import_id = cur.fetchone()[0]
+    # Clear existing metrics if in overwrite mode
+    if overwrite_mode == 'overwrite' and existing:
+        cur.execute("DELETE FROM hae_metrics_parsed WHERE import_id = %s", (import_id,))
+        print(f"Cleared existing metrics for import_id {import_id}")
+    
+    # Proactive field validation - Alert on problems but don't block
+    metrics_found = {m['name'] for m in data['data']['metrics']}
+    critical_fields = {'dietary_energy', 'protein', 'fiber', 'carbohydrates', 'total_fat'}
+    missing_fields = critical_fields - metrics_found
+    
+    if missing_fields:
+        print(f"⚠️  MISSING FIELDS: {missing_fields}")
+        print("   Data will be imported but incomplete")
+        print("   To fix: Enable these in Apple Health → Sharing → Health Auto Export")
+        print("")
+        
+        # Log missing fields to audit system
+        for field in missing_fields:
+            cur.execute("SELECT log_validation_issue(%s, %s, %s, %s, %s, %s)",
+                       (audit_id, 'missing_field', 'warning', field, 
+                        f"Field {field} not found in HAE export", None))
+        # Continue processing - don't exit
     
     # Parse metrics with proper rounding and calculations
     body_comp_by_date = {}  # Track for fat mass calculation
@@ -80,12 +166,17 @@ def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
             # Round numeric values appropriately
             if metric_name == 'dietary_energy':
                 value = round(entry.get('qty'))  # Calories as integers
-            elif metric_name in ['protein', 'carbohydrates', 'total_fat']:
+            elif metric_name in ['protein', 'carbohydrates', 'total_fat', 'fiber']:
                 value = round(entry.get('qty'), 1)  # Macros to 1 decimal
             elif metric_name in ['weight_body_mass', 'lean_body_mass']:
                 value = round(entry.get('qty'), 2)  # Weight to 2 decimals
             else:
                 value = entry.get('qty')
+            
+            # Factory Rule: Validate critical fields are present
+            critical_fields = ['dietary_energy', 'protein', 'fiber', 'carbohydrates', 'total_fat']
+            if metric_name in critical_fields and value is None:
+                print(f"WARNING: Critical field {metric_name} is NULL for date {date_str}")
             
             # Handle different value fields
             if metric_name == 'heart_rate':
@@ -132,6 +223,7 @@ def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
             protein_g = COALESCE(daily_facts.protein_g, EXCLUDED.protein_g),
             carbs_g = COALESCE(daily_facts.carbs_g, EXCLUDED.carbs_g),
             fat_g = COALESCE(daily_facts.fat_g, EXCLUDED.fat_g),
+            fiber_g = COALESCE(daily_facts.fiber_g, EXCLUDED.fiber_g),
             workout_kcal = COALESCE(daily_facts.workout_kcal, EXCLUDED.workout_kcal),
             weight_kg = COALESCE(daily_facts.weight_kg, EXCLUDED.weight_kg),
             fat_mass_kg = COALESCE(daily_facts.fat_mass_kg, EXCLUDED.fat_mass_kg),
@@ -145,6 +237,7 @@ def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
             protein_g = EXCLUDED.protein_g,
             carbs_g = EXCLUDED.carbs_g,
             fat_g = EXCLUDED.fat_g,
+            fiber_g = EXCLUDED.fiber_g,
             workout_kcal = EXCLUDED.workout_kcal,
             weight_kg = EXCLUDED.weight_kg,
             fat_mass_kg = EXCLUDED.fat_mass_kg,
@@ -156,7 +249,7 @@ def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
     # Update daily_facts
     query = f"""
         INSERT INTO daily_facts (
-            fact_date, intake_kcal, protein_g, carbs_g, fat_g, 
+            fact_date, intake_kcal, protein_g, carbs_g, fat_g, fiber_g,
             workout_kcal, weight_kg, fat_mass_kg, fat_free_mass_kg
         )
         SELECT 
@@ -165,6 +258,7 @@ def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
             ROUND(MAX(CASE WHEN metric_name = 'protein' THEN value END), 1) as protein_g,
             ROUND(MAX(CASE WHEN metric_name = 'carbohydrates' THEN value END), 1) as carbs_g,
             ROUND(MAX(CASE WHEN metric_name = 'total_fat' THEN value END), 1) as fat_g,
+            ROUND(MAX(CASE WHEN metric_name = 'fiber' THEN value END), 1) as fiber_g,
             ROUND(MAX(CASE WHEN metric_name = 'active_energy' THEN value END)) as workout_kcal,
             ROUND(MAX(CASE WHEN metric_name = 'weight_body_mass' THEN value * 0.453592 END), 2) as weight_kg,
             MAX(CASE WHEN metric_name = 'fat_mass_kg' THEN value END) as fat_mass_kg,
@@ -179,8 +273,19 @@ def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
     # Mark processed
     cur.execute("UPDATE hae_raw SET processed = TRUE WHERE import_id = %s", (import_id,))
     
+    # Complete audit logging
+    cur.execute("""
+        UPDATE data_import_audit 
+        SET import_status = 'success', 
+            records_processed = (SELECT COUNT(*) FROM hae_metrics_parsed WHERE import_id = %s),
+            hae_import_id = %s
+        WHERE audit_id = %s
+    """, (import_id, import_id, audit_id))
+    
     conn.commit()
     print(f"Imported {filename} as import_id {import_id}")
+    print(f"Audit completed: audit_id {audit_id}")
+    return import_id
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or len(sys.argv) > 3:
@@ -204,6 +309,9 @@ if __name__ == "__main__":
     # Connect and import
     conn = psycopg2.connect(database_url)
     try:
-        import_hae_file(conn, file_path, overwrite_mode)
+        import_id = import_hae_file(conn, file_path, overwrite_mode)
+        
+        # Factory Rule: Validate field mapping after import
+        validate_field_mapping(conn, import_id)
     finally:
         conn.close()

@@ -95,6 +95,7 @@ health-agentic-workflow-mvp/
 - Raw vs compensated exercise values
 - Fat mass uncertainty estimates
 - Imputation flags and methods
+- Nutrition tracking (calories, protein, fiber)
 
 ### Model Parameters
 - Current parameter values

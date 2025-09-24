@@ -1,0 +1,122 @@
+# Field Mapping Configuration
+# Factory Rule: ETL Field Mapping Completeness Check
+# When transitioning data sources (CSV → JSON, API → Database):
+# 1. DOCUMENT expected fields from old source
+# 2. MAP each field to new source equivalent  
+# 3. VERIFY all fields are captured post-transition
+# 4. TEST with overlap period (run both sources for 1 week)
+# 5. ALERT on missing fields immediately
+
+version: "1.0"
+description: "Field mapping for data source transitions"
+
+mappings:
+  # CSV to HAE JSON transition (Aug 26, 2025)
+  csv_to_hae:
+    source: "CSV Import (nutrition_meals)"
+    target: "HAE JSON Import (hae_metrics_parsed)"
+    transition_date: "2025-08-26"
+    
+    field_mappings:
+      # Nutrition fields
+      - old_field: "total_calories_kcal"
+        new_field: "dietary_energy"
+        metric_name: "dietary_energy"
+        unit: "kcal"
+        required: true
+        
+      - old_field: "total_protein_g"
+        new_field: "protein"
+        metric_name: "protein"
+        unit: "g"
+        required: true
+        
+      - old_field: "total_carbohydrates_g"
+        new_field: "carbohydrates"
+        metric_name: "carbohydrates"
+        unit: "g"
+        required: true
+        
+      - old_field: "total_fat_g"
+        new_field: "total_fat"
+        metric_name: "total_fat"
+        unit: "g"
+        required: true
+        
+      - old_field: "total_fiber_g"
+        new_field: "fiber"
+        metric_name: "fiber"
+        unit: "g"
+        required: true
+        
+      # Exercise fields
+      - old_field: "workout_kcal"
+        new_field: "active_energy"
+        metric_name: "active_energy"
+        unit: "kcal"
+        required: true
+        
+      # Body composition fields
+      - old_field: "weight_kg"
+        new_field: "weight_body_mass"
+        metric_name: "weight_body_mass"
+        unit: "kg"
+        required: true
+        
+      - old_field: "fat_mass_kg"
+        new_field: "fat_mass_kg"
+        metric_name: "fat_mass_kg"
+        unit: "kg"
+        required: true
+
+validation_rules:
+  # Daily validation alerts
+  daily_checks:
+    - field: "fiber_g"
+      alert_threshold: 5  # consecutive days with NULL
+      message: "Warning: fiber_g NULL for {count} consecutive days"
+      
+    - field: "protein_g"
+      alert_threshold: 3  # consecutive days with NULL
+      message: "Warning: protein_g NULL for {count} consecutive days"
+      
+    - field: "intake_kcal"
+      alert_threshold: 2  # consecutive days with NULL
+      message: "Warning: intake_kcal NULL for {count} consecutive days"
+
+  # Field completeness checks
+  completeness_checks:
+    - source: "nutrition_daily"
+      target: "daily_facts"
+      fields: ["total_calories_kcal", "total_protein_g", "total_fiber_g"]
+      tolerance: 0.95  # 95% of days must have data
+      
+    - source: "hae_metrics_parsed"
+      target: "daily_facts"
+      fields: ["dietary_energy", "protein", "fiber"]
+      tolerance: 0.90  # 90% of days must have data
+
+  # Transition period validation
+  transition_validation:
+    overlap_period_days: 7
+    validation_query: |
+      SELECT 
+        COUNT(DISTINCT fact_date) as total_days,
+        COUNT(DISTINCT CASE WHEN fiber_g IS NOT NULL THEN fact_date END) as fiber_days,
+        COUNT(DISTINCT CASE WHEN protein_g IS NOT NULL THEN fact_date END) as protein_days
+      FROM daily_facts 
+      WHERE fact_date >= '{start_date}' 
+        AND fact_date <= '{end_date}'
+    
+    success_criteria:
+      fiber_coverage: 0.95
+      protein_coverage: 0.95
+      total_days_min: 5
+
+# Implementation notes
+implementation:
+  - Create daily validation job that runs at 09:00
+  - Log alerts to audit_hil table
+  - Send notifications for critical field failures
+  - Maintain field mapping documentation
+  - Test field mappings before production transitions

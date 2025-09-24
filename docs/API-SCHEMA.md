@@ -106,7 +106,8 @@ Get daily health data for a date range.
     "bmr_kcal": 1615,
     "alpha_fm": "0.25",
     "compensation_factor": "0.15",
-    "kcal_per_kg_fat": "9675"
+    "kcal_per_kg_fat": "9675",
+    "fiber_g": 25.3
   }
 ]
 ```
@@ -129,6 +130,7 @@ Get daily health data for a date range.
 - `alpha_fm`: String (numeric) - Fat mass EMA smoothing factor
 - `compensation_factor`: String (numeric) - Exercise compensation factor
 - `kcal_per_kg_fat`: String (numeric) - Energy density of fat tissue
+- `fiber_g`: Number - Daily fiber intake in grams
 
 ---
 

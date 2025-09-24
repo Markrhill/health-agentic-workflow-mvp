@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Fiber tracking support:
+  - Added fiber_g column to daily_facts table
+  - Integrated fiber data through backend API
+  - Display fiber in weekly metrics table
 - Enhanced weekly_coaching_snapshot with analytics fields:
   - imputed_days_count, imputation_summary for data quality tracking
   - data_quality_score, missing_data_flags for quality metrics

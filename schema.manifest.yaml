@@ -169,6 +169,7 @@ relations:
       - { name: protein_g,             type: numeric,         required: false, desc: protein grams }
       - { name: carbs_g,               type: numeric,         required: false, desc: carbohydrate grams }
       - { name: fat_g,                 type: numeric,         required: false, desc: fat grams }
+      - { name: fiber_g,               type: numeric,         required: false, desc: daily fiber intake (g) }
       - { name: intake_is_imputed,     type: boolean,         required: false, desc: true if intake_kcal for this day is imputed }
       - { name: imputation_method,     type: text,            required: false, desc: "method used when intake_is_imputed=true (e.g., 'dow_median')" }
       - { name: nutrition_is_observed, type: boolean,         required: false, desc: true if day is fully logged }

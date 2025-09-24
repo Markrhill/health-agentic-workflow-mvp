@@ -76,6 +76,7 @@ Central fact table containing daily health metrics:
 - `intake_kcal` - Daily calorie intake
 - `workout_kcal` - Daily exercise calories
 - `fat_mass_kg` - Daily fat mass measurement
+- `fiber_g` - Daily fiber intake in grams from MFP via Apple Health
 - `intake_is_imputed` - Flag for imputed data
 - `imputation_method` - Method used for imputation
 
