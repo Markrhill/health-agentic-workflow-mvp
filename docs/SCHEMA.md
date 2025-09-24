@@ -4,6 +4,8 @@ This document provides comprehensive documentation of the Health Agentic Workflo
 
 ## 📋 Overview
 
+**Configuration**: Database connection via DATABASE_URL environment variable (see .env.example)
+
 The schema is designed to support a health coaching workflow with:
 - **Data ingestion** from multiple sources (Withings, MyFitnessPal, TrainingPeaks)
 - **Parameter versioning** for reproducible model calculations
@@ -17,6 +19,10 @@ The schema is designed to support a health coaching workflow with:
 - `withings_measurements_raw` - Raw Withings scale measurements
 - `nutrition_meals` - MyFitnessPal meal data
 - `trainingpeaks_workouts_raw` - TrainingPeaks workout data
+
+### Health Auto Export (HAE)
+- `hae_raw` - Raw JSON exports from HAE
+- `hae_metrics_parsed` - Parsed metrics by date
 
 ### Core Data Surface
 - `daily_facts` - Canonical daily facts surface (CURRENT)
@@ -56,7 +62,7 @@ graph TD
 
 ## 📊 Data Flow
 
-1. **Raw Data Ingestion**: CSV files → raw tables
+1. **Raw Data Ingestion**: CSV files → raw tables, HAE JSON → hae_raw
 2. **Daily Aggregation**: Raw data → daily facts
 3. **Parameter Application**: Daily facts + parameters → materialized series
 4. **Weekly Snapshot**: Materialized series → immutable snapshots

@@ -46,9 +46,8 @@
 version: 0.1
 warehouse:
   engine: postgres
-  # set this to your actual DB/schema names if different
-  database: default_db
   schema: public
+  # Database connection configured via DATABASE_URL environment variable
 owners:
   - name: Mark Hill
     role: data-product-owner
@@ -162,6 +161,7 @@ relations:
       - public.withings_daily_valid
       - public.nutrition_daily
       - public.trainingpeaks_enriched
+      - public.hae_metrics_parsed  # ADD THIS
     keys: [fact_date]
     columns:
       - { name: fact_date,             type: date,            required: true,  desc: calendar day (local) }
@@ -468,6 +468,51 @@ relations:
     column_policy: subset
     usage:
       documentation_only: true
+
+  - id: hae_raw
+    purpose: raw_hae_json_exports
+    type: table
+    fq_name: public.hae_raw
+    keys:
+      - import_id
+    columns:
+      - { name: import_id,        type: serial,    required: true,  desc: surrogate primary key }
+      - { name: file_name,        type: text,      required: true,  desc: source JSON filename }
+      - { name: date_range_start, type: date,      required: true,  desc: start of export range }
+      - { name: date_range_end,   type: date,      required: true,  desc: end of export range }
+      - { name: raw_json,         type: jsonb,     required: true,  desc: complete HAE export }
+      - { name: processed,        type: boolean,   required: false, desc: processing status, default false }
+      - { name: ingested_at,      type: "timestamp with time zone", required: true, desc: ingest timestamp }
+    tests:
+      shape:
+        - not_null: [import_id, file_name, raw_json]
+        - unique_keys: [[import_id]]
+    usage:
+      path_B: true
+
+  - id: hae_metrics_parsed
+    purpose: parsed_hae_metrics_by_date
+    type: table
+    fq_name: public.hae_metrics_parsed
+    depends_on:
+      - public.hae_raw
+    keys:
+      - date
+      - metric_name
+      - source
+    columns:
+      - { name: date,        type: date,    required: true,  desc: metric date }
+      - { name: metric_name, type: text,    required: true,  desc: metric type }
+      - { name: value,       type: numeric, required: false, desc: metric value }
+      - { name: unit,        type: text,    required: false, desc: unit of measure }
+      - { name: source,      type: text,    required: false, desc: data source device }
+      - { name: import_id,   type: integer, required: true,  desc: FK to hae_raw }
+    tests:
+      shape:
+        - not_null: [date, metric_name, import_id]
+        - unique_keys: [[date, metric_name, source]]
+    usage:
+      path_B: true
 
   - id: withings_measurements_raw
     purpose: raw_withings_csv_measurements
