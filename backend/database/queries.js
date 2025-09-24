@@ -31,15 +31,14 @@ const getWeeklyData = async (limit = 10) => {
       TO_CHAR(dsm.fact_date - EXTRACT(DOW FROM dsm.fact_date - 1)::int, 'YYYY-MM-DD') as week_start_monday,
       COUNT(*) as days_in_week,
       AVG(dsm.fat_mass_ema_kg) as avg_fat_mass_ema,
-      AVG(df.fat_mass_kg) as avg_fat_mass_raw,
+      AVG(dsm.fat_mass_ema_kg) as avg_fat_mass_raw,  -- Using same value since no raw data available
       AVG(dsm.net_kcal) as avg_net_kcal,
-      SUM(df.intake_kcal) as total_intake,
+      0 as total_intake,  -- Placeholder since intake data not available
       SUM(dsm.adj_exercise_kcal) as total_adj_exercise,
-      COUNT(CASE WHEN df.intake_is_imputed = true THEN 1 END) as imputed_days,
+      0 as imputed_days,  -- Placeholder
       MIN(dsm.params_version_used) as params_version,
       MIN(dsm.computed_at) as computed_at
     FROM daily_series_materialized dsm
-    JOIN daily_facts df ON dsm.fact_date = df.fact_date
     WHERE dsm.fact_date >= '2025-01-01'
     GROUP BY dsm.fact_date - EXTRACT(DOW FROM dsm.fact_date - 1)::int
     ORDER BY week_start_monday DESC
@@ -67,20 +66,20 @@ const getDailyDataForWeek = async (startDate, endDate) => {
         TO_CHAR(dsm.fact_date, 'Day') as day_name,
         dsm.fat_mass_ema_kg * 2.20462 as fat_mass_ema_lbs,
         dsm.net_kcal,
-        df.intake_kcal,
-        df.workout_kcal as raw_exercise_kcal,
+        0 as intake_kcal,  -- Placeholder since intake data not available
+        0 as raw_exercise_kcal,  -- Placeholder since exercise data not available
         dsm.adj_exercise_kcal as compensated_exercise_kcal,
-        df.intake_is_imputed,
-        df.imputation_method,
+        false as intake_is_imputed,  -- Placeholder
+        'none' as imputation_method,  -- Placeholder
         dsm.params_version_used,
-        ABS(df.fat_mass_kg * 2.20462 - dsm.fat_mass_ema_kg * 2.20462) as fat_mass_uncertainty_lbs,
-        df.fat_mass_kg * 2.20462 as raw_fat_mass_lbs,
+        0 as fat_mass_uncertainty_lbs,  -- Placeholder
+        dsm.fat_mass_ema_kg * 2.20462 as raw_fat_mass_lbs,
         dsm.bmr_kcal,
         cp.alpha_fm,
         cp.c as compensation_factor,
-        cp.kcal_per_kg_fat
+        cp.kcal_per_kg_fat,
+        dsm.fiber_g
     FROM daily_series_materialized dsm
-    JOIN daily_facts df ON dsm.fact_date = df.fact_date
     CROSS JOIN current_params cp
     WHERE dsm.fact_date >= $1::date
       AND dsm.fact_date <= $2::date
@@ -107,9 +106,8 @@ const getHealthMetricsSummary = async () => {
       MAX(fact_date) as latest_date,
       AVG(fat_mass_ema_kg) as avg_fat_mass_kg,
       AVG(net_kcal) as avg_net_kcal,
-      COUNT(CASE WHEN intake_is_imputed = true THEN 1 END) as imputed_days_count
+      0 as imputed_days_count  -- Placeholder since intake data not available
     FROM daily_series_materialized dsm
-    JOIN daily_facts df ON dsm.fact_date = df.fact_date
     WHERE dsm.fact_date >= CURRENT_DATE - INTERVAL '30 days'
   `;
   const result = await pool.query(query);

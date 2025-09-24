@@ -105,7 +105,8 @@ const HealthMVP = () => {
       compensatedExercise: Math.round(parseFloat(day.compensated_exercise_kcal || 0)),
       rawFatMass: parseFloat(day.raw_fat_mass_lbs || day.fat_mass_ema_lbs || 0),
       uncertainty: parseFloat(day.fat_mass_uncertainty_lbs || 0),
-      kcalPerKgFat: parseFloat(day.kcal_per_kg_fat || 9700) // Model parameter for fat energy density
+      kcalPerKgFat: parseFloat(day.kcal_per_kg_fat || 9700), // Model parameter for fat energy density
+      fiberG: parseFloat(day.fiber_g || 0)
     })) : [],
       trendData: weeklyData.slice(0, 13).filter(week => week.avg_fat_mass_ema).map(week => {
         const date = new Date(week.week_start_monday);
@@ -181,6 +182,7 @@ const HealthMVP = () => {
           exerciseNegative: 0,
           netKcal: null,
           fatMassLbs: null,
+          fiberG: null,
           // Add other fields as needed
         });
       }
@@ -531,24 +533,6 @@ const HealthMVP = () => {
                     </td>
                   </tr>
                   
-                  {/* Fat Mass Row */}
-                  <tr>
-                    <td className="w-28 px-2 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      Fat Mass (lbs)
-                    </td>
-                    {paddedDays.map((day, index) => (
-                      <td key={index} className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
-                        {day.fatMassLbs !== null ? day.fatMassLbs.toFixed(1) : '-'}
-                      </td>
-                    ))}
-                    <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center bg-yellow-50">
-                      {(
-                        paddedDays.filter(day => day.fatMassLbs !== null).reduce((sum, day) => sum + day.fatMassLbs, 0) / 
-                        Math.max(paddedDays.filter(day => day.fatMassLbs !== null).length, 1)
-                      ).toFixed(1)}
-                    </td>
-                  </tr>
-                  
                   {/* Protein Row - Placeholder */}
                   <tr>
                     <td className="w-28 px-2 py-4 whitespace-nowrap text-sm font-medium text-gray-500">
@@ -564,18 +548,39 @@ const HealthMVP = () => {
                     </td>
                   </tr>
                   
-                  {/* Fiber Row - Placeholder */}
+                  {/* Fiber Row */}
                   <tr>
-                    <td className="w-28 px-2 py-4 whitespace-nowrap text-sm font-medium text-gray-500">
+                    <td className="w-28 px-2 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       Fiber (g)
                     </td>
                     {paddedDays.map((day, index) => (
-                      <td key={index} className="px-3 py-4 whitespace-nowrap text-sm text-gray-400 text-center">
-                        -
+                      <td key={index} className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+                        {day.fiberG !== null && day.fiberG > 0 ? day.fiberG.toFixed(1) : '-'}
                       </td>
                     ))}
-                    <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-400 text-center bg-yellow-50">
-                      -
+                    <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center bg-yellow-50">
+                      {(
+                        paddedDays.filter(day => day.fiberG !== null && day.fiberG > 0).reduce((sum, day) => sum + day.fiberG, 0) / 
+                        Math.max(paddedDays.filter(day => day.fiberG !== null && day.fiberG > 0).length, 1)
+                      ).toFixed(1)}
+                    </td>
+                  </tr>
+                  
+                  {/* Fat Mass Row */}
+                  <tr>
+                    <td className="w-28 px-2 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      Fat Mass (lbs)
+                    </td>
+                    {paddedDays.map((day, index) => (
+                      <td key={index} className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+                        {day.fatMassLbs !== null ? day.fatMassLbs.toFixed(1) : '-'}
+                      </td>
+                    ))}
+                    <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center bg-yellow-50">
+                      {(
+                        paddedDays.filter(day => day.fatMassLbs !== null).reduce((sum, day) => sum + day.fatMassLbs, 0) / 
+                        Math.max(paddedDays.filter(day => day.fatMassLbs !== null).length, 1)
+                      ).toFixed(1)}
                     </td>
                   </tr>
                 </tbody>
