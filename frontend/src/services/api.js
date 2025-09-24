@@ -48,6 +48,10 @@ export const getParameters = () => {
   return apiRequest('/parameters');
 };
 
+export const getGoals = () => {
+  return apiRequest('/goals');
+};
+
 export const getHealthMetricsSummary = () => {
   return apiRequest('/summary');
 };
@@ -60,13 +64,16 @@ export const healthCheck = () => {
 export const getCurrentParameters = getParameters;
 export const getDailyDataForWeek = getDailyData;
 
-export default {
+const apiService = {
   getWeeklyData,
   getDailyData,
   getParameters,
+  getGoals,
   getHealthMetricsSummary,
   healthCheck,
   // Legacy exports
   getCurrentParameters,
   getDailyDataForWeek,
 };
+
+export default apiService;

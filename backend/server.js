@@ -24,6 +24,7 @@ app.get('/', (req, res) => {
     endpoints: {
       health: '/health',
       parameters: '/api/parameters',
+      goals: '/api/goals',
       weekly: '/api/weekly',
       daily: '/api/daily/:startDate/:endDate',
       summary: '/api/summary'

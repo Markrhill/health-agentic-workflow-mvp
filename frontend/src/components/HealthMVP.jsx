@@ -1,14 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { getWeeklyData, getDailyData } from '../services/api';
+import { getWeeklyData, getDailyData, getGoals } from '../services/api';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, ReferenceLine, LabelList } from 'recharts';
 
 const HealthMVP = () => {
   const [selectedWeekIndex, setSelectedWeekIndex] = useState(0);
   const [weeklyData, setWeeklyData] = useState([]);
   const [dailyData, setDailyData] = useState([]);
+  const [goals, setGoals] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Dynamic color logic based on goals - NEVER hardcode thresholds
+  const getProteinColor = (value) => {
+    if (!goals) return 'bg-gray-100';
+    if (value >= goals.protein_g_target) return 'bg-green-100';
+    if (value >= goals.protein_g_min) return 'bg-yellow-100';
+    return 'bg-red-100';
+  };
+
+  const getFiberColor = (value) => {
+    if (!goals) return 'bg-gray-100';
+    if (value >= goals.fiber_g_target) return 'bg-green-100';
+    if (value >= goals.fiber_g_min) return 'bg-yellow-100';
+    return 'bg-red-100';
+  };
+
+  const getDeficitColor = (value) => {
+    if (!goals) return 'bg-gray-100';
+    if (value > 0) return 'bg-red-100';  // Surplus (positive net calories)
+    if (value <= -goals.net_deficit_target && value >= -goals.net_deficit_max) return 'bg-green-100';  // Green between target (-400) and max (-750)
+    if (value > -goals.net_deficit_target) return 'bg-yellow-100';  // Yellow if less deficit than target (between 0 and -400)
+    return 'bg-red-100';  // Too aggressive deficit (beyond -750)
+  };
 
   const handleWeekChange = (direction) => {
     const newIndex = direction === 'prev' ? selectedWeekIndex + 1 : selectedWeekIndex - 1;
@@ -31,6 +55,10 @@ const HealthMVP = () => {
     const loadData = async () => {
       try {
         setLoading(true);
+        
+        // Load goals first - they drive all color logic
+        const goalsData = await getGoals();
+        setGoals(goalsData);
         
         const weeklyData = await getWeeklyData(13);
         setWeeklyData(weeklyData);
@@ -466,6 +494,31 @@ const HealthMVP = () => {
           </ResponsiveContainer>
         </div>
 
+        {/* Current Goals Display */}
+        {goals && (
+          <div className="bg-blue-50 rounded-lg shadow-sm border border-blue-200 p-6 mb-6">
+            <h3 className="text-lg font-bold text-blue-900 mb-4">Current Performance Goals ({goals.goal_version})</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <div className="font-medium text-blue-800">Net Deficit (kcal/day)</div>
+                <div className="text-blue-600">Target: {goals.net_deficit_target} | Max: {goals.net_deficit_max}</div>
+              </div>
+              <div>
+                <div className="font-medium text-blue-800">Protein (g/day)</div>
+                <div className="text-blue-600">Min: {goals.protein_g_min} | Target: {goals.protein_g_target}</div>
+              </div>
+              <div>
+                <div className="font-medium text-blue-800">Fiber (g/day)</div>
+                <div className="text-blue-600">Min: {goals.fiber_g_min} | Target: {goals.fiber_g_target}</div>
+              </div>
+              <div>
+                <div className="font-medium text-blue-800">Source</div>
+                <div className="text-blue-600 capitalize">{goals.goal_source} | {goals.priority}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Weekly Metrics Table */}
         {currentWeekData?.dailyData && (() => {
           const paddedDays = padWeekData(currentWeekData.dailyData);
@@ -513,20 +566,17 @@ const HealthMVP = () => {
                     </td>
                     {paddedDays.map((day, index) => (
                       <td key={index} className={`px-3 py-4 whitespace-nowrap text-sm text-gray-900 text-center ${
-                        day.netKcal !== null && day.netKcal <= -500 ? 'bg-green-100' : ''
+                        day.netKcal !== null ? getDeficitColor(day.netKcal) : ''
                       }`}>
                         {day.netKcal !== null ? Math.round(day.netKcal) : '-'}
                       </td>
                     ))}
-                    <td className={`px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center bg-yellow-50 ${
-                      (() => {
-                        const avgNetCalories = Math.round(
-                          paddedDays.filter(day => day.netKcal !== null).reduce((sum, day) => sum + day.netKcal, 0) / 
-                          Math.max(paddedDays.filter(day => day.netKcal !== null).length, 1)
-                        );
-                        return avgNetCalories <= -500 ? 'ring-2 ring-green-400' : '';
-                      })()
-                    }`}>
+                    <td className={`px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center ${getDeficitColor(
+                      Math.round(
+                        paddedDays.filter(day => day.netKcal !== null).reduce((sum, day) => sum + day.netKcal, 0) / 
+                        Math.max(paddedDays.filter(day => day.netKcal !== null).length, 1)
+                      )
+                    )}`}>
                       {Math.round(
                         paddedDays.filter(day => day.netKcal !== null).reduce((sum, day) => sum + day.netKcal, 0) / 
                         Math.max(paddedDays.filter(day => day.netKcal !== null).length, 1)
@@ -540,11 +590,14 @@ const HealthMVP = () => {
                       Protein (g)
                     </td>
                     {paddedDays.map((day, index) => (
-                      <td key={index} className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+                      <td key={index} className={`px-3 py-4 whitespace-nowrap text-sm text-gray-900 text-center ${day.proteinG !== null && day.proteinG > 0 ? getProteinColor(day.proteinG) : ''}`}>
                         {day.proteinG !== null && day.proteinG > 0 ? day.proteinG.toFixed(1) : '-'}
                       </td>
                     ))}
-                    <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center bg-yellow-50">
+                    <td className={`px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center ${getProteinColor(
+                      paddedDays.filter(day => day.proteinG !== null && day.proteinG > 0).reduce((sum, day) => sum + day.proteinG, 0) / 
+                      Math.max(paddedDays.filter(day => day.proteinG !== null && day.proteinG > 0).length, 1)
+                    )}`}>
                       {(
                         paddedDays.filter(day => day.proteinG !== null && day.proteinG > 0).reduce((sum, day) => sum + day.proteinG, 0) / 
                         Math.max(paddedDays.filter(day => day.proteinG !== null && day.proteinG > 0).length, 1)
@@ -558,11 +611,14 @@ const HealthMVP = () => {
                       Fiber (g)
                     </td>
                     {paddedDays.map((day, index) => (
-                      <td key={index} className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+                      <td key={index} className={`px-3 py-4 whitespace-nowrap text-sm text-gray-900 text-center ${day.fiberG !== null && day.fiberG > 0 ? getFiberColor(day.fiberG) : ''}`}>
                         {day.fiberG !== null && day.fiberG > 0 ? day.fiberG.toFixed(1) : '-'}
                       </td>
                     ))}
-                    <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center bg-yellow-50">
+                    <td className={`px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center ${getFiberColor(
+                      paddedDays.filter(day => day.fiberG !== null && day.fiberG > 0).reduce((sum, day) => sum + day.fiberG, 0) / 
+                      Math.max(paddedDays.filter(day => day.fiberG !== null && day.fiberG > 0).length, 1)
+                    )}`}>
                       {(
                         paddedDays.filter(day => day.fiberG !== null && day.fiberG > 0).reduce((sum, day) => sum + day.fiberG, 0) / 
                         Math.max(paddedDays.filter(day => day.fiberG !== null && day.fiberG > 0).length, 1)

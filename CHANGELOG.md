@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Performance Goals Time-Varying System**:
+  - Added `performance_goals_timevarying` table with versioned goal sets
+  - Comprehensive goal tracking: nutrition, training volume, performance metrics, body composition
+  - Goal evaluation functions: `evaluate_daily_goals()`, `evaluate_weekly_goals()`
+  - Goal performance dashboard view for monitoring
+  - Initial Attia-influenced goal set (v2025_09_25)
+- **Enhanced Audit System for Goal Changes**:
+  - Extended `audit_hil` table to track goal version changes
+  - New audit functions: `log_goal_change()`, `log_parameter_and_goal_change()`
+  - Source attribution tracking (attia, custom, coach)
+  - Audit views: `recent_goal_changes`, `weekly_audit_trail`
+  - Support for combined parameter and goal changes
 - Fiber tracking support:
   - Added fiber_g column to daily_facts table
   - Integrated fiber data through backend API
@@ -25,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Updated weekly_coaching_snapshot dependencies to include performance_goals
 - Enhanced data quality validation with additional range constraints
+- Extended audit system to capture goal changes alongside parameter changes
 
 ## [0.2.0] - 2025-09-16
 ### Added

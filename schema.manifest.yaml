@@ -690,6 +690,51 @@ relations:
         - not_null: [week_start, week_end, params_version_used, avg_net_kcal, days_on_target, predicted_delta_fm_kg, observed_delta_fm_kg, within_expected_range, decision, data_freeze_ts]
         - unique_keys: [[week_start]]
 
+  - id: performance_goals_timevarying
+    purpose: time_varying_performance_targets
+    type: table
+    fq_name: public.performance_goals_timevarying
+    keys:
+      - goal_version
+    columns:
+      - { name: goal_version,              type: varchar(20),         required: true,  desc: unique identifier for goal set }
+      - { name: effective_start_date,      type: date,                required: true,  desc: first date this goal set applies }
+      - { name: effective_end_date,        type: date,                required: false, desc: last date this goal set applies }
+      - { name: protein_g_min,             type: numeric(5,1),        required: false, desc: minimum acceptable daily protein (yellow threshold) }
+      - { name: protein_g_target,          type: numeric(5,1),        required: false, desc: target daily protein (green threshold) }
+      - { name: fiber_g_min,               type: numeric(5,1),        required: false, desc: minimum acceptable daily fiber (yellow threshold) }
+      - { name: fiber_g_target,            type: numeric(5,1),        required: false, desc: target daily fiber (green threshold) }
+      - { name: net_deficit_max,           type: integer,             required: false, desc: maximum sustainable daily calorie deficit }
+      - { name: net_deficit_target,        type: integer,             required: false, desc: target daily calorie deficit }
+      - { name: z2_hours_min,              type: numeric(3,1),        required: false, desc: minimum weekly Zone 2 hours (Attia) }
+      - { name: z2_hours_target,           type: numeric(3,1),        required: false, desc: target weekly Zone 2 hours (Attia) }
+      - { name: z4_5_hours_min,            type: numeric(3,1),        required: false, desc: minimum weekly high intensity hours }
+      - { name: z4_5_hours_target,         type: numeric(3,1),        required: false, desc: target weekly high intensity hours }
+      - { name: strength_sessions_min,     type: integer,             required: false, desc: minimum weekly strength sessions }
+      - { name: strength_sessions_target,  type: integer,             required: false, desc: target weekly strength sessions }
+      - { name: ftp_watts_target,          type: integer,             required: false, desc: target FTP in watts }
+      - { name: vo2max_target,             type: numeric(4,1),        required: false, desc: target VO2max in ml/kg/min }
+      - { name: body_fat_pct_max,          type: numeric(3,1),        required: false, desc: maximum acceptable body fat percentage }
+      - { name: body_fat_pct_target,       type: numeric(3,1),        required: false, desc: target body fat percentage }
+      - { name: lean_mass_kg_min,          type: numeric(4,1),        required: false, desc: minimum acceptable lean body mass in kg }
+      - { name: goal_source,               type: varchar(50),         required: false, desc: source of goal framework (attia, custom, coach) }
+      - { name: priority,                  type: varchar(20),         required: false, desc: primary focus (performance, health, recomp) }
+      - { name: notes,                     type: text,                required: false, desc: freeform notes }
+      - { name: created_by,                type: varchar(100),        required: false, desc: creator identifier }
+      - { name: created_at,                type: timestamp,           required: false, desc: creation timestamp }
+    dependencies:
+      - none (reference table)
+    tests:
+      shape:
+        - unique_keys: [[goal_version]]
+        - not_null: [goal_version, effective_start_date]
+      semantic:
+        - range: { column: protein_g_target, min: 100, max: 300 }
+        - range: { column: body_fat_pct_target, min: 5, max: 30 }
+    usage:
+      path_A: true
+      path_B: true
+
   - id: audit_hil
     purpose: audit_log_human_in_loop_decisions
     type: table

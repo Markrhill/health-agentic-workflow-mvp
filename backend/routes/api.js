@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   getCurrentParameters,
+  getCurrentPerformanceGoals,
   getWeeklyData,
   getDailyDataForWeek,
   getHealthMetricsSummary
@@ -24,6 +25,17 @@ router.get('/parameters', async (req, res) => {
   } catch (error) {
     console.error('Error fetching parameters:', error);
     res.status(500).json({ error: 'Failed to fetch parameters' });
+  }
+});
+
+// Get current performance goals
+router.get('/goals', async (req, res) => {
+  try {
+    const goals = await getCurrentPerformanceGoals();
+    res.json(goals);
+  } catch (error) {
+    console.error('Error fetching performance goals:', error);
+    res.status(500).json({ error: 'Failed to fetch performance goals' });
   }
 });
 

@@ -4,10 +4,10 @@
   "description": "Health Agentic Workflow MVP - Personalized health coaching with data-driven insights",
   "main": "index.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev": "npm run clean-ports && concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm start",
-    "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
+    "start": "npm run clean-ports && concurrently \"npm run start:backend\" \"npm run start:frontend\"",
     "start:backend": "cd backend && npm start",
     "start:frontend": "cd frontend && npm start",
     "build": "cd frontend && npm run build",
@@ -18,7 +18,9 @@
     "test:frontend": "cd frontend && npm test",
     "lint": "npm run lint:backend && npm run lint:frontend",
     "lint:backend": "cd backend && npm run lint",
-    "lint:frontend": "cd frontend && npm run lint"
+    "lint:frontend": "cd frontend && npm run lint",
+    "clean-ports": "bash scripts/clean-ports.sh",
+    "pre-commit": "npm run lint && npm run clean-ports"
   },
   "keywords": [
     "health",

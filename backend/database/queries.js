@@ -99,6 +99,43 @@ const getDailyDataForWeek = async (startDate, endDate) => {
   return result.rows;
 };
 
+// Get current performance goals
+const getCurrentPerformanceGoals = async () => {
+  const pool = getPool();
+  const query = `
+    SELECT 
+      goal_version,
+      effective_start_date,
+      protein_g_min,
+      protein_g_target,
+      fiber_g_min,
+      fiber_g_target,
+      net_deficit_max,
+      net_deficit_target,
+      z2_hours_min,
+      z2_hours_target,
+      z4_5_hours_min,
+      z4_5_hours_target,
+      strength_sessions_min,
+      strength_sessions_target,
+      ftp_watts_target,
+      vo2max_target,
+      body_fat_pct_max,
+      body_fat_pct_target,
+      lean_mass_kg_min,
+      goal_source,
+      priority,
+      notes
+    FROM performance_goals_timevarying
+    WHERE CURRENT_DATE BETWEEN effective_start_date 
+      AND COALESCE(effective_end_date, '9999-12-31')
+    ORDER BY effective_start_date DESC 
+    LIMIT 1
+  `;
+  const result = await pool.query(query);
+  return result.rows[0];
+};
+
 // Get health metrics summary
 const getHealthMetricsSummary = async () => {
   const pool = getPool();
@@ -119,6 +156,7 @@ const getHealthMetricsSummary = async () => {
 
 module.exports = {
   getCurrentParameters,
+  getCurrentPerformanceGoals,
   getWeeklyData,
   getDailyDataForWeek,
   getHealthMetricsSummary
