@@ -27,9 +27,11 @@ const getWeeklyData = async (limit = 10) => {
   const pool = getPool();
   const query = `
     SELECT 
-      DATE_TRUNC('week', dsm.fact_date)::date + 1 as week_start_monday,
+      -- Instead of returning raw date fields, return formatted strings
+      TO_CHAR(dsm.fact_date - EXTRACT(DOW FROM dsm.fact_date - 1)::int, 'YYYY-MM-DD') as week_start_monday,
       COUNT(*) as days_in_week,
       AVG(dsm.fat_mass_ema_kg) as avg_fat_mass_ema,
+      AVG(df.fat_mass_kg) as avg_fat_mass_raw,
       AVG(dsm.net_kcal) as avg_net_kcal,
       SUM(df.intake_kcal) as total_intake,
       SUM(dsm.adj_exercise_kcal) as total_adj_exercise,
@@ -39,7 +41,7 @@ const getWeeklyData = async (limit = 10) => {
     FROM daily_series_materialized dsm
     JOIN daily_facts df ON dsm.fact_date = df.fact_date
     WHERE dsm.fact_date >= '2025-01-01'
-    GROUP BY DATE_TRUNC('week', dsm.fact_date)
+    GROUP BY dsm.fact_date - EXTRACT(DOW FROM dsm.fact_date - 1)::int
     ORDER BY week_start_monday DESC
     LIMIT $1
   `;
@@ -86,6 +88,12 @@ const getDailyDataForWeek = async (startDate, endDate) => {
   `;
   
   const result = await pool.query(query, [startDate, endDate]);
+  
+  // Debug: Log the actual fact_date values being returned
+  console.log('Daily data query parameters:', { startDate, endDate });
+  console.log('Daily data fact_date values:', result.rows.map(d => d.fact_date));
+  console.log('Number of days returned:', result.rows.length);
+  
   return result.rows;
 };
 

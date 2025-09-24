@@ -1,4 +1,7 @@
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+// Prevent pg from converting DATE fields to JavaScript Date objects
+types.setTypeParser(1082, val => val);
 
 let pool;
 

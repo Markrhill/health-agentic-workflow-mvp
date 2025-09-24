@@ -21,7 +21,7 @@ router.get('/parameters', async (req, res) => {
 // Get weekly data for UI
 router.get('/weekly', async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 52;
     const weeklyData = await getWeeklyData(limit);
     res.json(weeklyData);
   } catch (error) {
