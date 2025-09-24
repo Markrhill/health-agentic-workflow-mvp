@@ -162,18 +162,49 @@ const HealthMVP = () => {
     console.log('Insufficient daily data:', currentWeekData?.dailyData.length);
   }
   
+  // Function to pad incomplete weekly data with placeholder days
+  const padWeekData = (dailyData) => {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const paddedData = [];
+    
+    days.forEach((dayName) => {
+      const existingDay = dailyData.find(d => d.day === dayName);
+      if (existingDay) {
+        paddedData.push(existingDay);
+      } else {
+        // Add placeholder for missing days
+        paddedData.push({
+          day: dayName,
+          date: '-',
+          intake: 0,
+          exercise: 0,
+          exerciseNegative: 0,
+          netKcal: null,
+          fatMassLbs: null,
+          // Add other fields as needed
+        });
+      }
+    });
+    
+    return paddedData;
+  };
+
   // Prepare data for weekly discipline chart
   const weeklyChartData = currentWeekData ? (() => {
     const days = currentWeekData.dailyData;
     const avgBMR = 1625; // Average BMR for the week
     
-    // Calculate weekly averages
-    const avgIntake = Math.round(days.reduce((sum, day) => sum + day.intake, 0) / days.length);
-    const avgExercise = Math.round(days.reduce((sum, day) => sum + day.exercise, 0) / days.length); // Use negative exercise values
-    const avgNet = Math.round(days.reduce((sum, day) => sum + day.netKcal, 0) / days.length);
+    // Calculate weekly averages (only from existing data)
+    const existingDays = days.filter(day => day.netKcal !== null);
+    const avgIntake = existingDays.length > 0 ? Math.round(existingDays.reduce((sum, day) => sum + day.intake, 0) / existingDays.length) : 0;
+    const avgExercise = existingDays.length > 0 ? Math.round(existingDays.reduce((sum, day) => sum + day.exercise, 0) / existingDays.length) : 0;
+    const avgNet = existingDays.length > 0 ? Math.round(existingDays.reduce((sum, day) => sum + day.netKcal, 0) / existingDays.length) : 0;
+    
+    // Pad the data to ensure all 7 days are present
+    const paddedDays = padWeekData(days);
     
     // Transform daily data for Recharts
-    const chartData = days.map(day => ({
+    const chartData = paddedDays.map(day => ({
       day: day.day,
       date: day.date,
       intake: day.intake,
@@ -358,6 +389,7 @@ const HealthMVP = () => {
             <BarChart 
               data={weeklyChartData?.chartData || []}
               stackOffset="sign"
+              margin={{ top: 20, right: 30, bottom: 20, left: 85 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
               <XAxis 
@@ -431,17 +463,133 @@ const HealthMVP = () => {
           </ResponsiveContainer>
         </div>
 
-        {/* Performance Summary */}
+        {/* Weekly Metrics Table */}
+        {currentWeekData?.dailyData && (() => {
+          const paddedDays = padWeekData(currentWeekData.dailyData);
+          return (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Weekly Metrics</h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="w-28 px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Metric
+                    </th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Mon
+                    </th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Tue
+                    </th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Wed
+                    </th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Thu
+                    </th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Fri
+                    </th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Sat
+                    </th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Sun
+                    </th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-yellow-50">
+                      Avg
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {/* Net Calories Row */}
+                  <tr>
+                    <td className="w-28 px-2 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      Net Calories
+                    </td>
+                    {paddedDays.map((day, index) => (
+                      <td key={index} className={`px-3 py-4 whitespace-nowrap text-sm text-gray-900 text-center ${
+                        day.netKcal !== null && day.netKcal <= -500 ? 'bg-green-100' : ''
+                      }`}>
+                        {day.netKcal !== null ? Math.round(day.netKcal) : '-'}
+                      </td>
+                    ))}
+                    <td className={`px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center bg-yellow-50 ${
+                      (() => {
+                        const avgNetCalories = Math.round(
+                          paddedDays.filter(day => day.netKcal !== null).reduce((sum, day) => sum + day.netKcal, 0) / 
+                          Math.max(paddedDays.filter(day => day.netKcal !== null).length, 1)
+                        );
+                        return avgNetCalories <= -500 ? 'ring-2 ring-green-400' : '';
+                      })()
+                    }`}>
+                      {Math.round(
+                        paddedDays.filter(day => day.netKcal !== null).reduce((sum, day) => sum + day.netKcal, 0) / 
+                        Math.max(paddedDays.filter(day => day.netKcal !== null).length, 1)
+                      )}
+                    </td>
+                  </tr>
+                  
+                  {/* Fat Mass Row */}
+                  <tr>
+                    <td className="w-28 px-2 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      Fat Mass (lbs)
+                    </td>
+                    {paddedDays.map((day, index) => (
+                      <td key={index} className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+                        {day.fatMassLbs !== null ? day.fatMassLbs.toFixed(1) : '-'}
+                      </td>
+                    ))}
+                    <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center bg-yellow-50">
+                      {(
+                        paddedDays.filter(day => day.fatMassLbs !== null).reduce((sum, day) => sum + day.fatMassLbs, 0) / 
+                        Math.max(paddedDays.filter(day => day.fatMassLbs !== null).length, 1)
+                      ).toFixed(1)}
+                    </td>
+                  </tr>
+                  
+                  {/* Protein Row - Placeholder */}
+                  <tr>
+                    <td className="w-28 px-2 py-4 whitespace-nowrap text-sm font-medium text-gray-500">
+                      Protein (g)
+                    </td>
+                    {paddedDays.map((day, index) => (
+                      <td key={index} className="px-3 py-4 whitespace-nowrap text-sm text-gray-400 text-center">
+                        -
+                      </td>
+                    ))}
+                    <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-400 text-center bg-yellow-50">
+                      -
+                    </td>
+                  </tr>
+                  
+                  {/* Fiber Row - Placeholder */}
+                  <tr>
+                    <td className="w-28 px-2 py-4 whitespace-nowrap text-sm font-medium text-gray-500">
+                      Fiber (g)
+                    </td>
+                    {paddedDays.map((day, index) => (
+                      <td key={index} className="px-3 py-4 whitespace-nowrap text-sm text-gray-400 text-center">
+                        -
+                      </td>
+                    ))}
+                    <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-400 text-center bg-yellow-50">
+                      -
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          );
+        })()}
+
+        {/* Fat Mass Performance */}
         {weeklyStats && (
           <div className="border-l-4 border-blue-500 pl-6 bg-blue-50 p-6 rounded-lg mb-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Performance Summary</h3>
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Fat Mass Performance</h3>
             <div className="space-y-3">
-              <div className="text-lg text-left pl-6 py-1">
-                • <strong>{weeklyStats.targetDays} of {weeklyStats.totalDays} days on Target (≤ {weeklyStats.targetDeficit} kcal)</strong>
-              </div>
-              <div className="text-lg text-left pl-6 py-1">
-                • <strong>Weekly net: {weeklyStats.weeklyNetKcal} kcal/day</strong>
-              </div>
               <div className="text-lg text-left pl-6 py-1">
                 • <strong>Predicted ΔFat Mass {weeklyStats.predictedChange} ± {weeklyStats.uncertainty} lbs</strong>
               </div>
@@ -455,7 +603,7 @@ const HealthMVP = () => {
                     const uncertainty = weeklyStats.uncertainty;
                     const lowerBound = predicted - uncertainty;
                     const upperBound = predicted + uncertainty;
-                    return (actual >= lowerBound && actual <= upperBound) ? 'within predicted range' : 'outside predicted range';
+                    return (actual >= lowerBound && actual <= upperBound) ? ' within predicted range' : ' outside predicted range';
                   })()}
                 </strong>
               </div>
