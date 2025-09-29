@@ -29,11 +29,11 @@ This document preserves the methodology used during initial model development (S
 - Exercise calories: 0-8000 kcal/day
 - 7-day windowing optimal for fat mass change analysis
 
-### Starting Parameter Values
-- α_fm = 0.25 (fat mass EMA smoothing)
-- α_lbm = 0.10 (lean body mass EMA smoothing)
-- Energy density: 7,700 kcal/kg
-- Compensation factor: c = 0.85 (exercise adjustment)
+### Starting Parameter Values (Initial Inputs)
+- α_fm = 0.25 (fat mass EMA smoothing) - *fitted parameter*
+- α_lbm = 0.10 (lean body mass EMA smoothing) - *fitted parameter*
+- Energy density: 7,700 kcal/kg - *initial starting input (literature-based)*
+- Compensation factor: c = 0.85 (exercise adjustment) - *initial starting input (literature-based)*
 
 ### Imputation Strategy
 - Day-of-week medians for missing intake
@@ -42,11 +42,34 @@ This document preserves the methodology used during initial model development (S
 
 ## Replication Instructions
 
-To replicate the historical analysis:
+### **Production Data Method (Recommended)**
+To replicate using current production data pipeline:
 
-1. **Data Setup**: Use archived P0/P1 tables (if available)
-2. **Parameter Fitting**: Run `tools/p1_fit_params.py`
-3. **Validation**: Use `tools/p1_eval.py` for model evaluation
+1. **Create Production Splits**: Run `tools/create_production_splits.py`
+   - Generates train/test views from `daily_facts` (2021-2024 vs 2025+)
+   - Applies split-aware DoW imputation (prevents data leakage)
+   - Uses raw fat_mass_kg values (not EMA-smoothed)
+
+2. **Generate Windows**: Run `tools/create_production_windows.py`
+   - Creates 7-day rolling windows with eligibility rules
+   - Applies outlier filtering identical to P1 methodology
+   - Outputs: `prod_train_windows`, `prod_test_windows`
+
+3. **Fit Parameters**: Run `tools/fit_initial_params_production.py`
+   - Fits α (energy density), c (compensation), BMR parameters
+   - Uses identical methodology to P1 but on production data
+   - Outputs: Initial parameter set for `model_params_timevarying`
+
+4. **Validation**: Run `tools/eval_production_params.py`
+   - Cross-validation on production test split
+   - Compare parameter stability vs P1 results
+
+### **Legacy P0/P1 Method (Historical Reference)**
+*Available only if archived P0/P1 tables exist in database*
+
+1. **Data Setup**: Query `p0_staging`, `p1_train_daily`, `p1_test_daily`
+2. **Parameter Fitting**: Run `tools/p1_fit_params.py` (legacy)
+3. **Validation**: Use `tools/p1_eval.py` (legacy)
 4. **Window Analysis**: Query `p1_*_windows_flex7` views
 
 ## Migration to Production

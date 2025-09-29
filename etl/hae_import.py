@@ -80,10 +80,18 @@ def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
     audit_id = cur.fetchone()[0]
     print(f"Started audit log: audit_id {audit_id}")
     
-    # Extract date range from filename
-    parts = filename.replace('HealthAutoExport-', '').replace('.json', '').split('-')
-    start_date = f"{parts[0]}-{parts[1]}-{parts[2]}"
-    end_date = f"{parts[3]}-{parts[4]}-{parts[5]}"
+    # Extract date from filename
+    date_str = filename.replace('HealthAutoExport-', '').replace('.json', '')
+    parts = date_str.split('-')
+    if len(parts) == 3:
+        # Single date format: YYYY-MM-DD
+        start_date = end_date = f"{parts[0]}-{parts[1]}-{parts[2]}"
+    elif len(parts) == 6:
+        # Date range format: YYYY-MM-DD-YYYY-MM-DD
+        start_date = f"{parts[0]}-{parts[1]}-{parts[2]}"
+        end_date = f"{parts[3]}-{parts[4]}-{parts[5]}"
+    else:
+        raise ValueError(f"Invalid filename format: {filename}")
     
     cur = conn.cursor()
     

@@ -225,8 +225,8 @@ const HealthMVP = () => {
     const days = currentWeekData.dailyData;
     const avgBMR = 1625; // Average BMR for the week
     
-    // Calculate weekly averages (only from existing data)
-    const existingDays = days.filter(day => day.netKcal !== null);
+    // Calculate weekly averages (only from days with actual data - exclude 0 intake which indicates missing data)
+    const existingDays = days.filter(day => day.netKcal !== null && day.intake > 0);
     const avgIntake = existingDays.length > 0 ? Math.round(existingDays.reduce((sum, day) => sum + day.intake, 0) / existingDays.length) : 0;
     const avgExercise = existingDays.length > 0 ? Math.round(existingDays.reduce((sum, day) => sum + day.exercise, 0) / existingDays.length) : 0;
     const avgNet = existingDays.length > 0 ? Math.round(existingDays.reduce((sum, day) => sum + day.netKcal, 0) / existingDays.length) : 0;
@@ -289,12 +289,20 @@ const HealthMVP = () => {
     
     console.log('currentWeekTrendIndex:', currentWeekTrendIndex, 'previousWeekTrendIndex:', previousWeekTrendIndex);
     
-    // For fat mass change, we want to show the change that happened during the selected week
-    // If selectedWeekIndex points to a week, we want to show the change FROM that week TO the next week
-    const startFatMass = currentWeekTrendIndex >= 0 ? trendData[currentWeekTrendIndex]?.fatMass || 0 : 0;
-    const endFatMass = currentWeekTrendIndex + 1 < trendData.length ? trendData[currentWeekTrendIndex + 1]?.fatMass || 0 : 0;
+    // For fat mass change, use the most recent available readings
+    // Current week: most recent reading from this week's daily data
+    // Previous week: most recent reading from trendData (which represents end-of-week values)
     
-    console.log('startFatMass:', startFatMass, 'endFatMass:', endFatMass);
+    // Get most recent fat mass from current week's daily data
+    const currentWeekMostRecent = days
+      .filter(day => day.fatMassLbs && day.fatMassLbs > 0)
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    const endFatMass = currentWeekMostRecent?.fatMassLbs || 0;
+    
+    // Get most recent fat mass from previous week (from trendData)
+    const startFatMass = previousWeekTrendIndex >= 0 ? trendData[previousWeekTrendIndex]?.fatMass || 0 : 0;
+    
+    console.log('startFatMass (prev week):', startFatMass, 'endFatMass (current week most recent):', endFatMass);
     const actualChange = endFatMass - startFatMass;
     
     // Get model parameter for fat energy density (use first day's value since it should be consistent)
@@ -307,7 +315,7 @@ const HealthMVP = () => {
       startFatMass: startFatMass.toFixed(1),
       endFatMass: endFatMass.toFixed(1),
       actualChange: actualChange.toFixed(1),
-      predictedChange: (weeklyNetKcal * 7 / kcalPerKgFat * 2.20462).toFixed(1), // Use model parameter
+      predictedChange: (weeklyNetKcal * days.length / kcalPerKgFat * 2.20462).toFixed(1), // Use actual number of days
       uncertainty: 0.4, // Keep uncertainty constant for now
       targetDeficit: -500 // Target daily deficit from schema
     };
@@ -459,6 +467,11 @@ const HealthMVP = () => {
                 ]}
               />
               <Legend />
+              <ReferenceLine 
+                y={0} 
+                stroke="#374151" 
+                strokeWidth={2}
+              />
               <ReferenceLine 
                 y={1630} 
                 stroke="#6b7280" 
