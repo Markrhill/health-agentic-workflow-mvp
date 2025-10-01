@@ -1,0 +1,52 @@
+# Withings API Configuration
+# Configuration file for Withings data extraction and sync
+
+withings:
+  # API Configuration
+  base_url: "https://wbsapi.withings.net"
+  measure_endpoint: "https://wbsapi.withings.net/measure"
+  token_endpoint: "https://wbsapi.withings.net/oauth2"
+  
+  # Measurement Types
+  measure_types:
+    weight: 1
+    fat_mass: 8
+    muscle_mass: 9
+    bone_mass: 76
+    body_water: 77
+    fat_percentage: 88
+  
+  # Sync Configuration
+  sync_schedule: "daily"
+  default_limit: 100
+  max_limit: 1000
+  
+  # Data Retention
+  data_retention_days: 30
+  
+  # Error Handling
+  error_retry_attempts: 3
+  retry_delay_seconds: 5
+  request_timeout_seconds: 30
+  
+  # Validation Rules
+  validation:
+    weight_kg:
+      min: 30
+      max: 300
+    fat_mass_kg:
+      min: 5
+      max: 100
+  
+  # Logging
+  logging:
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # Database
+  database:
+    table_name: "withings_raw_measurements"
+    batch_size: 50
+    
+  # Timezone
+  default_timezone: "America/Los_Angeles"

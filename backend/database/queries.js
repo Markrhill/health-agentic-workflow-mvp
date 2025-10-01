@@ -27,8 +27,9 @@ const getWeeklyData = async (limit = 10) => {
   const pool = getPool();
   const query = `
     SELECT 
-      -- Instead of returning raw date fields, return formatted strings
-      TO_CHAR(dsm.fact_date - EXTRACT(DOW FROM dsm.fact_date - 1)::int, 'YYYY-MM-DD') as week_start_monday,
+      -- Calculate Monday of the week (PostgreSQL DOW: 0=Sunday, 1=Monday, ..., 6=Saturday)
+      -- Formula: date - (DOW + 6) % 7 gives the previous Monday
+      TO_CHAR(dsm.fact_date - ((EXTRACT(DOW FROM dsm.fact_date)::int + 6) % 7), 'YYYY-MM-DD') as week_start_monday,
       COUNT(*) as days_in_week,
       AVG(dsm.fat_mass_ema_kg) as avg_fat_mass_ema,
       AVG(dsm.fat_mass_ema_kg) as avg_fat_mass_raw,  -- Using same value since no raw data available
@@ -40,7 +41,7 @@ const getWeeklyData = async (limit = 10) => {
       MIN(dsm.computed_at) as computed_at
     FROM daily_series_materialized dsm
     WHERE dsm.fact_date >= '2025-01-01'
-    GROUP BY dsm.fact_date - EXTRACT(DOW FROM dsm.fact_date - 1)::int
+    GROUP BY dsm.fact_date - ((EXTRACT(DOW FROM dsm.fact_date)::int + 6) % 7)
     ORDER BY week_start_monday DESC
     LIMIT $1
   `;

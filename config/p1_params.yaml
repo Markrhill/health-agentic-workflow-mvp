@@ -1,7 +1,7 @@
-# Final P1 parameters (train set: 2021-01-01..2024-12-31)
-m_kcal_per_day: 1630      # M
-compensation_c: 0.19      # C
-alpha_kcal_per_kg: 9800   # α
+# Final P1 parameters (train set: 2021-01-01..2024-12-31) - UPDATED 2025-09-29
+m_kcal_per_day: 1400      # M (updated from 1630)
+compensation_c: 0.50      # C (updated from 0.19)
+alpha_kcal_per_kg: 9500   # α (updated from 9800)
 window_days: 7
 
 # DB connection (override via env if you prefer)

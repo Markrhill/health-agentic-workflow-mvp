@@ -35,6 +35,7 @@ def pg_engine(cfg):
 
 def find_view(engine, preferred: str, fallback: str | None = None) -> str:
     with engine.connect() as con:
+        # First try views
         q = text("""
           select table_schema, table_name
           from information_schema.views
@@ -46,11 +47,27 @@ def find_view(engine, preferred: str, fallback: str | None = None) -> str:
         params = {"preferred": preferred}
         if fallback: params["fallback"] = fallback
         df = pd.read_sql(q, con, params=params)
-    if not df.empty:
-        # prefer the first row which is ordered as specified
-        return df.iloc[0]["table_name"]
+        
+        if not df.empty:
+            return df.iloc[0]["table_name"]
+        
+        # If no view found, try tables
+        q = text("""
+          select table_schema, table_name
+          from information_schema.tables
+          where table_type = 'BASE TABLE'
+          and (table_schema, table_name) in (
+            ('public', :preferred){fallback_clause}
+          )
+        """.replace("{fallback_clause}",
+                    "" if not fallback else ",('public', :fallback)"))
+        df = pd.read_sql(q, con, params=params)
+        
+        if not df.empty:
+            return df.iloc[0]["table_name"]
+            
     raise RuntimeError(
-        f"Neither view found: {preferred}" + (f", {fallback}" if fallback else "")
+        f"Neither view nor table found: {preferred}" + (f", {fallback}" if fallback else "")
     )
 
 def load_windows(engine, view_name: str) -> pd.DataFrame:

@@ -6,7 +6,8 @@
 # ```mermaid
 # graph TD
 #   subgraph Sources
-#     WRAW[withings_measurements_raw]\n(CSV ingest) 
+#     WRAW[withings_raw_measurements]\n(API ingest) 
+#     WRAW_LEGACY[withings_measurements_raw]\n(DEPRECATED CSV)
 #     MFP[nutrition_meals]\n(MFP CSVs)
 #     TPRAW[trainingpeaks_workouts_raw]\n(TP export)
 #   end
@@ -14,6 +15,8 @@
 #   subgraph Transforms
 #     WFIRST[withings_daily_first]\n(first-of-day selection)
 #     WVALID[withings_daily_valid]\n(validated daily fat mass)
+#     DFACTS[daily_facts]\n(canonical daily surface)
+#     DFILTER[daily_facts_filtered]\n(Kalman smoothed fat mass)
 #     NDAY[nutrition_daily]\n(daily kcal + macros)
 #     TPENR[trainingpeaks_enriched]\n(per-workout kcal + enrich)
 #   end
@@ -27,9 +30,11 @@
 #   end
 #
 #   %% flows
-#   WRAW --> WFIRST --> WVALID --> P0
-#   MFP  --> NDAY   --> P0
-#   TPRAW--> TPENR  --> P0
+#   WRAW --> WFIRST --> WVALID --> DFACTS
+#   WRAW_LEGACY -.-> WFIRST  # Deprecated path
+#   MFP  --> NDAY   --> DFACTS
+#   TPRAW--> TPENR  --> DFACTS
+#   DFACTS --> DFILTER --> P0
 #   P0   --> P1TR --> WINTR
 #   P0   --> P1TE --> WINTE
 #
@@ -38,10 +43,14 @@
 # ```
 #
 # Notes:
+# - `withings_raw_measurements` is the new definitive source for Withings data (API-based)
+# - `withings_measurements_raw` is deprecated (legacy CSV imports)
 # - `withings_daily_valid` depends on `withings_daily_first` per schema.
 # - `withings_first_of_day` is diagnostic only; not used in modeling joins.
 # - `daily_facts` sits between Transforms and Modeling, fed by `withings_daily_valid`,
 #   `nutrition_daily`, and a daily aggregation of `trainingpeaks_enriched`.
+# - `daily_facts_filtered` applies Kalman filtering to `daily_facts.fat_mass_kg` to reduce
+#   BIA noise (3x reduction in stddev) for more reliable parameter estimation in windows.
 # -----------------------------------------------------------------------------
 version: 0.1
 warehouse:
@@ -153,6 +162,32 @@ relations:
       # Note: per-workout rows; daily aggregation is provided via p0_staging.workout_kcal
       path_B: true
 
+  - id: daily_facts_filtered
+    purpose: kalman_smoothed_fat_mass_for_modeling
+    type: table
+    fq_name: public.daily_facts_filtered
+    depends_on:
+      - public.daily_facts
+    keys: [fact_date]
+    columns:
+      - { name: fact_date,             type: date,           required: true,  desc: calendar day (local) }
+      - { name: fat_mass_kg_filtered,  type: "numeric(10,3)", required: true,  desc: Kalman-filtered fat mass estimate }
+      - { name: fat_mass_kg_variance,  type: "numeric(10,6)", required: true,  desc: "Uncertainty in filtered estimate (P_t|t)" }
+      - { name: kalman_gain,           type: "numeric(8,6)",  required: true,  desc: Diagnostic - how much measurement was trusted }
+      - { name: created_at,            type: "timestamp with time zone", required: false, desc: record creation timestamp }
+    freshness_sla: "batch processing after HAE import"
+    tests:
+      shape:
+        - not_null: [fact_date, fat_mass_kg_filtered, fat_mass_kg_variance, kalman_gain]
+        - unique_keys: [[fact_date]]
+      semantic:
+        - range: { column: fat_mass_kg_filtered, min: 10, max: 60 }
+        - range: { column: fat_mass_kg_variance, min: 0, max: 10 }
+        - range: { column: kalman_gain, min: 0, max: 1 }
+    usage:
+      path_A: true
+      modeling_windows: true
+
   - id: daily_facts
     purpose: canonical_daily_facts_surface
     type: table
@@ -170,6 +205,7 @@ relations:
       - { name: carbs_g,               type: numeric,         required: false, desc: carbohydrate grams }
       - { name: fat_g,                 type: numeric,         required: false, desc: fat grams }
       - { name: fiber_g,               type: numeric,         required: false, desc: daily fiber intake (g) }
+      - { name: tef_kcal,              type: "numeric(8,2)",  required: false, desc: "Thermic Effect of Food: (protein×4×0.25)+(carbs×4×0.08)+(fat×9×0.02)" }
       - { name: intake_is_imputed,     type: boolean,         required: false, desc: true if intake_kcal for this day is imputed }
       - { name: imputation_method,     type: text,            required: false, desc: "method used when intake_is_imputed=true (e.g., 'dow_median')" }
       - { name: nutrition_is_observed, type: boolean,         required: false, desc: true if day is fully logged }
@@ -192,6 +228,7 @@ relations:
         - range: { column: intake_kcal,  min: 500, max: 6000 }
         - range: { column: workout_kcal, min: 0,   max: 8000 }
         - range: { column: fat_mass_kg,  min: 20,  max: 60 }
+        - range: { column: tef_kcal,     min: 0,   max: 2000 }
         - range: { column: data_quality_score, min: 0.0, max: 1.0 }
         - range: { column: goal_progress_pct, min: 0.0, max: 100.0 }
         - range: { column: prediction_accuracy, min: 0.0, max: 1.0 }
@@ -206,7 +243,7 @@ relations:
     type: view
     fq_name: public.withings_daily_first
     depends_on:
-      - public.withings_measurements_raw
+      - public.withings_raw_measurements
     keys:
       - day_date
     columns:
@@ -515,10 +552,49 @@ relations:
     usage:
       path_B: true
 
+  - id: withings_raw_measurements
+    purpose: definitive_source_withings_api_data
+    type: table
+    fq_name: public.withings_raw_measurements
+    keys:
+      - measurement_id
+    columns:
+      - { name: id,                    type: integer,                    required: true,  desc: surrogate primary key }
+      - { name: measurement_id,        type: character varying,         required: true,  desc: Withings API measurement ID }
+      - { name: weight_kg,             type: numeric,                    required: true,  desc: weight in kg (converted from API) }
+      - { name: timestamp_utc,         type: "timestamp with time zone", required: true,  desc: measurement timestamp (UTC) }
+      - { name: timestamp_user,        type: "timestamp with time zone", required: true,  desc: measurement timestamp (user timezone) }
+      - { name: original_timezone,     type: character varying,          required: false, desc: original timezone from API }
+      - { name: user_timezone,         type: character varying,          required: false, desc: user's configured timezone }
+      - { name: source_format,         type: character varying,          required: false, desc: API response format }
+      - { name: raw_value,             type: integer,                    required: false, desc: raw value from API }
+      - { name: raw_unit,              type: integer,                    required: false, desc: raw unit from API }
+      - { name: created_at,            type: "timestamp with time zone", required: false, desc: record creation timestamp }
+      - { name: fat_mass_kg,           type: numeric,                    required: false, desc: fat mass in kg }
+      - { name: fat_free_mass_kg,      type: numeric,                    required: false, desc: fat-free mass in kg }
+      - { name: muscle_mass_kg,        type: numeric,                    required: false, desc: muscle mass in kg }
+      - { name: bone_mass_kg,          type: numeric,                    required: false, desc: bone mass in kg }
+      - { name: body_water_kg,         type: numeric,                    required: false, desc: body water in kg }
+      - { name: fat_ratio_pct,         type: numeric,                    required: false, desc: body fat percentage }
+    freshness_sla: "real-time via API"
+    tests:
+      shape:
+        - not_null: [measurement_id, weight_kg, timestamp_utc, timestamp_user]
+        - unique_keys: [[measurement_id]]
+      semantic:
+        - range: { column: weight_kg, min: 30, max: 300 }
+        - range: { column: fat_mass_kg, min: 5, max: 50 }
+        - range: { column: fat_ratio_pct, min: 5, max: 40 }
+    usage:
+      path_A: true
+      path_B: true
+
   - id: withings_measurements_raw
-    purpose: raw_withings_csv_measurements
+    purpose: DEPRECATED_raw_withings_csv_measurements
     type: table
     fq_name: public.withings_measurements_raw
+    status: deprecated
+    deprecation_notes: "Replaced by withings_raw_measurements (API source). This table contains legacy CSV imports."
     keys:
       - measured_at
     columns:

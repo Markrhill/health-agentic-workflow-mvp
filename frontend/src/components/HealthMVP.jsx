@@ -44,7 +44,9 @@ const HealthMVP = () => {
 
 
   const formatWeekDate = (dateString) => {
-    const date = new Date(dateString);
+    // Parse date as local date (not UTC) to avoid timezone offset issues
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
     return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric'
@@ -121,7 +123,12 @@ const HealthMVP = () => {
   // Transform API data to match the visual component structure with robust error handling
   const currentWeekData = currentWeek ? {
     weekStart: formatWeekDate(currentWeek.week_start_monday),
-    weekEnd: dailyData.length > 0 ? formatWeekDate(dailyData[dailyData.length - 1].fact_date) : 'N/A',
+    weekEnd: (() => {
+      // Calculate week end as Monday + 6 days (always shows full week range)
+      const weekStart = new Date(currentWeek.week_start_monday);
+      const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+      return formatWeekDate(weekEnd.toISOString().split('T')[0]);
+    })(),
     dailyData: dailyData.length > 0 ? dailyData.map(day => ({
       day: day.day_name?.trim()?.substring(0, 3) || 'N/A',
       date: day.fact_date?.split('T')[0]?.substring(5)?.replace('-', '-') || 'N/A',
