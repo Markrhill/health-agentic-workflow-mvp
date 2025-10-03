@@ -129,21 +129,41 @@ const HealthMVP = () => {
       const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
       return formatWeekDate(weekEnd.toISOString().split('T')[0]);
     })(),
-    dailyData: dailyData.length > 0 ? dailyData.map(day => ({
-      day: day.day_name?.trim()?.substring(0, 3) || 'N/A',
-      date: day.fact_date?.split('T')[0]?.substring(5)?.replace('-', '-') || 'N/A',
-      fatMassLbs: parseFloat(day.fat_mass_ema_lbs || 0),
-      netKcal: Math.round(parseFloat(day.net_kcal || 0)),
-      intake: Math.round(parseFloat(day.intake_kcal || 0)),
-      rawExercise: Math.round(parseFloat(day.raw_exercise_kcal || 0)),
-      exercise: -Math.round(parseFloat(day.raw_exercise_kcal || 0)), // Negative for display below baseline
-      compensatedExercise: Math.round(parseFloat(day.compensated_exercise_kcal || 0)),
-      rawFatMass: parseFloat(day.raw_fat_mass_lbs || day.fat_mass_ema_lbs || 0),
-      uncertainty: parseFloat(day.fat_mass_uncertainty_lbs || 0),
-      kcalPerKgFat: parseFloat(day.kcal_per_kg_fat || 9700), // Model parameter for fat energy density
-      fiberG: parseFloat(day.fiber_g || 0),
-      proteinG: parseFloat(day.protein_g || 0)
-    })) : [],
+    dailyData: dailyData.length > 0 ? (() => {
+      // Forward-fill BMR when missing (due to missing body comp) to calculate net_kcal
+      // See: docs/adr/0004-frontend-bmr-forward-fill.md
+      // Rationale: BMR changes slowly (~2-4 kcal/day), forward-fill provides immediate
+      // feedback on controllable behaviors (intake/exercise) without polluting backend data
+      // Net Kcal = Intake - Compensated Exercise - BMR
+      let lastKnownBmr = null;
+      
+      return dailyData.map(day => {
+        const bmr = day.bmr_kcal || lastKnownBmr;
+        if (day.bmr_kcal) lastKnownBmr = day.bmr_kcal; // Update last known
+        
+        // Calculate net_kcal if missing but we have intake and BMR
+        let netKcal = day.net_kcal;
+        if (!netKcal && day.intake_kcal && bmr) {
+          netKcal = day.intake_kcal - (day.compensated_exercise_kcal || 0) - bmr;
+        }
+        
+        return {
+          day: day.day_name?.trim()?.substring(0, 3) || 'N/A',
+          date: day.fact_date?.split('T')[0]?.substring(5)?.replace('-', '-') || 'N/A',
+          fatMassLbs: parseFloat(day.fat_mass_ema_lbs || 0),
+          netKcal: netKcal ? Math.round(parseFloat(netKcal)) : null,
+          intake: Math.round(parseFloat(day.intake_kcal || 0)),
+          rawExercise: Math.round(parseFloat(day.raw_exercise_kcal || 0)),
+          exercise: -Math.round(parseFloat(day.raw_exercise_kcal || 0)), // Negative for display below baseline
+          compensatedExercise: Math.round(parseFloat(day.compensated_exercise_kcal || 0)),
+          rawFatMass: parseFloat(day.raw_fat_mass_lbs || day.fat_mass_ema_lbs || 0),
+          uncertainty: parseFloat(day.fat_mass_uncertainty_lbs || 0),
+          kcalPerKgFat: parseFloat(day.kcal_per_kg_fat || 9700), // Model parameter for fat energy density
+          fiberG: parseFloat(day.fiber_g || 0),
+          proteinG: parseFloat(day.protein_g || 0)
+        };
+      });
+    })() : [],
       trendData: weeklyData.slice(0, 13).filter(week => week.avg_fat_mass_ema).map(week => {
         const date = new Date(week.week_start_monday);
         const month = date.toLocaleDateString('en-US', { month: 'short' });
@@ -330,76 +350,6 @@ const HealthMVP = () => {
 
   return (
     <div className="p-6 space-y-6">
-      {/* 13-Week Fat Mass Trend */}
-      <div className="bg-white rounded-lg shadow-sm p-8 mb-6">
-        <h2 className="text-xl font-bold text-blue-900 mb-4">
-          13-Week Fat Mass Trend
-        </h2>
-        
-        <div className="h-80 mb-6" style={{ width: '100%', height: '320px' }}>
-          <ResponsiveContainer 
-            width="100%" 
-            height="100%"
-            onResize={(width, height) => console.log('Chart resize:', width, height)}
-          >
-            <LineChart data={(currentWeekData?.trendData || []).filter(point => 
-              point.fatMass && point.fatMass > 0 && (!point.raw || point.raw > 0)
-            )}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-              <XAxis 
-                dataKey="date" 
-                stroke="#6b7280"
-                fontSize={12}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis 
-                domain={[30, 50]}
-                type="number"
-                scale="linear"
-                allowDataOverflow={false}
-                stroke="#6b7280"
-                fontSize={12}
-                tickLine={false}
-                axisLine={false}
-                label={{ value: 'Fat Mass (lbs)', angle: -90, position: 'insideLeft' }}
-              />
-              <Tooltip 
-                contentStyle={{
-                  backgroundColor: '#f9fafb',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                  fontSize: '12px'
-                }}
-                formatter={(value, name) => [
-                  `${value.toFixed(1)} lbs`, 
-                  name === 'raw' ? 'Raw Withings' : 'Smoothed Fat Mass'
-                ]}
-              />
-              <Legend />
-                  <Line 
-                    type="monotone" 
-                    dataKey="raw" 
-                    stroke="transparent"
-                    strokeWidth={0}
-                    dot={{ fill: '#6b7280', strokeWidth: 2, r: 4 }}
-                    name="Raw Withings"
-                    connectNulls={false}
-                  />
-              <Line 
-                type="monotone" 
-                dataKey="fatMass" 
-              stroke="#dc2626"
-                strokeWidth={3}
-                dot={{ fill: '#dc2626', strokeWidth: 2, r: 4 }}
-                name="Smoothed Fat Mass (α=0.25)"
-                connectNulls={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
       {/* Weekly Process Discipline */}
       <div className="bg-white rounded-lg shadow-sm p-8 mb-6">
         <div className="flex items-center justify-between mb-6">
@@ -514,31 +464,6 @@ const HealthMVP = () => {
           </ResponsiveContainer>
         </div>
 
-        {/* Current Goals Display */}
-        {goals && (
-          <div className="bg-blue-50 rounded-lg shadow-sm border border-blue-200 p-6 mb-6">
-            <h3 className="text-lg font-bold text-blue-900 mb-4">Current Performance Goals ({goals.goal_version})</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <div className="font-medium text-blue-800">Net Deficit (kcal/day)</div>
-                <div className="text-blue-600">Target: {goals.net_deficit_target} | Max: {goals.net_deficit_max}</div>
-              </div>
-              <div>
-                <div className="font-medium text-blue-800">Protein (g/day)</div>
-                <div className="text-blue-600">Min: {goals.protein_g_min} | Target: {goals.protein_g_target}</div>
-              </div>
-              <div>
-                <div className="font-medium text-blue-800">Fiber (g/day)</div>
-                <div className="text-blue-600">Min: {goals.fiber_g_min} | Target: {goals.fiber_g_target}</div>
-              </div>
-              <div>
-                <div className="font-medium text-blue-800">Source</div>
-                <div className="text-blue-600 capitalize">{goals.goal_source} | {goals.priority}</div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Weekly Metrics Table */}
         {currentWeekData?.dailyData && (() => {
           const paddedDays = padWeekData(currentWeekData.dailyData);
@@ -588,7 +513,7 @@ const HealthMVP = () => {
                       <td key={index} className={`px-3 py-4 whitespace-nowrap text-sm text-gray-900 text-center ${
                         day.netKcal !== null ? getDeficitColor(day.netKcal) : ''
                       }`}>
-                        {day.netKcal !== null ? Math.round(day.netKcal) : '-'}
+                        {day.netKcal !== null ? Math.round(day.netKcal).toLocaleString() : '-'}
                       </td>
                     ))}
                     <td className={`px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center ${getDeficitColor(
@@ -600,7 +525,7 @@ const HealthMVP = () => {
                       {Math.round(
                         paddedDays.filter(day => day.netKcal !== null).reduce((sum, day) => sum + day.netKcal, 0) / 
                         Math.max(paddedDays.filter(day => day.netKcal !== null).length, 1)
-                      )}
+                      ).toLocaleString()}
                     </td>
                   </tr>
                   
@@ -695,7 +620,103 @@ const HealthMVP = () => {
             </div>
           </div>
         )}
+
       </div>
+
+      {/* 13-Week Fat Mass Trend */}
+      <div className="bg-white rounded-lg shadow-sm p-8 mb-6">
+        <h2 className="text-xl font-bold text-blue-900 mb-4">
+          13-Week Fat Mass Trend
+        </h2>
+        
+        <div className="h-80 mb-6" style={{ width: '100%', height: '320px' }}>
+          <ResponsiveContainer 
+            width="100%" 
+            height="100%"
+            onResize={(width, height) => console.log('Chart resize:', width, height)}
+          >
+            <LineChart data={(currentWeekData?.trendData || []).filter(point => 
+              point.fatMass && point.fatMass > 0 && (!point.raw || point.raw > 0)
+            )}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+              <XAxis 
+                dataKey="date" 
+                stroke="#6b7280"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis 
+                domain={[30, 50]}
+                type="number"
+                scale="linear"
+                allowDataOverflow={false}
+                stroke="#6b7280"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                label={{ value: 'Fat Mass (lbs)', angle: -90, position: 'insideLeft' }}
+              />
+              <Tooltip 
+                contentStyle={{
+                  backgroundColor: '#f9fafb',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  fontSize: '12px'
+                }}
+                formatter={(value, name) => [
+                  `${value.toFixed(1)} lbs`, 
+                  name === 'raw' ? 'Raw Withings' : 'Smoothed Fat Mass'
+                ]}
+              />
+              <Legend />
+                  <Line 
+                    type="monotone" 
+                    dataKey="raw" 
+                    stroke="transparent"
+                    strokeWidth={0}
+                    dot={{ fill: '#6b7280', strokeWidth: 2, r: 4 }}
+                    name="Raw Withings"
+                    connectNulls={false}
+                  />
+              <Line 
+                type="monotone" 
+                dataKey="fatMass" 
+              stroke="#dc2626"
+                strokeWidth={3}
+                dot={{ fill: '#dc2626', strokeWidth: 2, r: 4 }}
+                name="Smoothed Fat Mass (α=0.25)"
+                connectNulls={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Current Goals Display */}
+      {goals && (
+          <div className="bg-blue-50 rounded-lg shadow-sm border border-blue-200 p-6 mb-6">
+            <h3 className="text-lg font-bold text-blue-900 mb-4">Current Performance Goals ({goals.goal_version})</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <div className="font-medium text-blue-800">Net Deficit (kcal/day)</div>
+                <div className="text-blue-600">Target: {goals.net_deficit_target} | Max: {goals.net_deficit_max}</div>
+              </div>
+              <div>
+                <div className="font-medium text-blue-800">Protein (g/day)</div>
+                <div className="text-blue-600">Min: {goals.protein_g_min} | Target: {goals.protein_g_target}</div>
+              </div>
+              <div>
+                <div className="font-medium text-blue-800">Fiber (g/day)</div>
+                <div className="text-blue-600">Min: {goals.fiber_g_min} | Target: {goals.fiber_g_target}</div>
+              </div>
+              <div>
+                <div className="font-medium text-blue-800">Source</div>
+                <div className="text-blue-600 capitalize">{goals.goal_source} | {goals.priority}</div>
+              </div>
+            </div>
+          </div>
+        )}
     </div>
   );
 };
