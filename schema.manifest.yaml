@@ -209,7 +209,7 @@ relations:
       - { name: intake_is_imputed,     type: boolean,         required: false, desc: true if intake_kcal for this day is imputed }
       - { name: imputation_method,     type: text,            required: false, desc: "method used when intake_is_imputed=true (e.g., 'dow_median')" }
       - { name: nutrition_is_observed, type: boolean,         required: false, desc: true if day is fully logged }
-      - { name: workout_kcal,          type: integer,         required: false, desc: exercise kcal (sum of trainingpeaks_enriched) }
+      - { name: workout_kcal,          type: integer,         required: true,  desc: "daily workout energy expenditure (kcal); 0 = rest day (not NULL)" }
       - { name: weight_kg,             type: "numeric(10,3)", required: false, desc: daily weight (kg) }
       - { name: fat_mass_kg,           type: "numeric(10,3)", required: false, desc: Withings fat mass (kg), earliest-of-day }
       - { name: fat_free_mass_kg,      type: "numeric(10,3)", required: false, desc: fat-free mass (kg) }
@@ -222,7 +222,7 @@ relations:
     freshness_sla: "daily by 09:00"
     tests:
       shape:
-        - not_null: [fact_date]
+        - not_null: [fact_date, workout_kcal]
         - unique_keys: [[fact_date]]
       semantic:
         - range: { column: intake_kcal,  min: 500, max: 6000 }
@@ -265,10 +265,13 @@ relations:
     usage:
       documentation_only: false
 
-  # ---------- MODELING SPLITS (READ-ONLY) ----------
+  # ---------- MODELING SPLITS (HISTORICAL - DEPRECATED) ----------
+  # NOTE: These tables were deleted in September 2025. Preserved in schema for historical reference.
+  # See docs/P0-P1-HISTORICAL-ARCHIVE.md for complete documentation.
+  # Current canonical source: daily_facts table
+  
   - id: p0_imputed_intake
-    purpose: modeling_imputed_intake_daily
-    
+    purpose: modeling_imputed_intake_daily_HISTORICAL
     type: table
     fq_name: public.p0_imputed_intake
     keys:
@@ -286,7 +289,7 @@ relations:
       one_time_analysis: true
 
   - id: p0_staging
-    purpose: modeling_staging_daily
+    purpose: modeling_staging_daily_HISTORICAL
     type: table
     fq_name: public.p0_staging
     keys:
@@ -307,10 +310,10 @@ relations:
         - range: { column: intake_kcal,  min: 500, max: 6000 }
         - range: { column: workout_kcal, min: 0,   max: 8000 }
     usage:
-      one_time_analysis: true
+      historical_reference: true
 
   - id: p1_train_daily
-    purpose: modeling_train_split_2021_2024
+    purpose: modeling_train_split_2021_2024_HISTORICAL
     type: view
     fq_name: public.p1_train_daily
     depends_on:
@@ -326,10 +329,10 @@ relations:
       - { name: weight_kg,     type: "numeric(10,3)", required: false }
     time_range: { start: "2021-01-01", end: "2024-12-31" }
     usage:
-      one_time_analysis: true
+      historical_reference: true
 
   - id: p1_test_daily
-    purpose: modeling_test_split_2025_ytd
+    purpose: modeling_test_split_2025_ytd_HISTORICAL
     type: view
     fq_name: public.p1_test_daily
     depends_on:

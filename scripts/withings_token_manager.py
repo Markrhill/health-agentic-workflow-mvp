@@ -47,6 +47,11 @@ class WithingsTokenManager:
         if not current_token or not refresh_token:
             raise ValueError("WITHINGS_ACCESS_TOKEN and WITHINGS_REFRESH_TOKEN must be set. Run: python scripts/withings_oauth_helper.py")
         
+        # TEMP FIX: Skip token validation - tokens are valid for 3 hours from OAuth
+        # Withings refresh endpoint returns "Not implemented" error
+        logger.info("Using access token (3-hour validity window)")
+        return current_token
+        
         # Test current token
         if self._is_token_valid(current_token):
             logger.debug("Current access token is valid")

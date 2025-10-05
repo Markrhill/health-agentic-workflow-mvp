@@ -18,10 +18,11 @@
     "2024-01-01 to 2024-06-30",
     "2024-07-01 to 2024-12-31",
     "2025-01-01 to 2025-06-30",
-    "2025-07-01 to 2025-09-30"
+    "2025-07-01 to 2025-09-30",
+    "2025-09-29 to 2025-10-03"
   ],
-  "total_measurements_extracted": 3267,
+  "total_measurements_extracted": 3277,
   "total_errors": 83,
-  "last_chunk_completed": "2025-07-01 to 2025-09-30",
+  "last_chunk_completed": "2025-09-29 to 2025-10-03",
   "start_time": "2025-09-29T12:22:22.460949"
 }

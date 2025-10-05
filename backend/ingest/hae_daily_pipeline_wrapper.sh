@@ -11,7 +11,12 @@ export PATH="/opt/anaconda3/bin:/usr/local/bin:/usr/bin:/bin"
 export PYTHONPATH="/opt/anaconda3/lib/python3.11/site-packages"
 
 # Calculate yesterday's date (macOS compatible)
-if [ -z "$1" ]; then
+# Priority: 1) Positional arg $1, 2) FACT_DATE env var, 3) Yesterday
+if [ -n "$1" ]; then
+    DATE="$1"
+elif [ -n "$FACT_DATE" ]; then
+    DATE="$FACT_DATE"
+else
     # Get yesterday's date - macOS uses -v, Linux uses -d
     if date -v-1d +%Y-%m-%d >/dev/null 2>&1; then
         # macOS
@@ -20,8 +25,6 @@ if [ -z "$1" ]; then
         # Linux/GNU
         DATE=$(date -d "yesterday" +%Y-%m-%d)
     fi
-else
-    DATE="$1"
 fi
 
 HAE_DIR="/Users/markhill/Library/CloudStorage/GoogleDrive-mark@buildwhatsmissing.com/My Drive/Health Auto Export/Apple Health Exports"
