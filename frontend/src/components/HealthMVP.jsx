@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { getWeeklyData, getDailyData, getGoals } from '../services/api';
+import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { getWeeklyData, getDailyData, getGoals, refreshData } from '../services/api';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, ReferenceLine, LabelList } from 'recharts';
 
 const HealthMVP = () => {
@@ -10,6 +10,8 @@ const HealthMVP = () => {
   const [goals, setGoals] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshStatus, setRefreshStatus] = useState(null);
 
   // Dynamic color logic based on goals - NEVER hardcode thresholds
   const getProteinColor = (value) => {
@@ -39,6 +41,49 @@ const HealthMVP = () => {
     if (newIndex >= 0 && newIndex < weeklyData.length) {
       setSelectedWeekIndex(newIndex);
       // Daily data will be loaded by useEffect when selectedWeekIndex changes
+    }
+  };
+
+  const handleRefreshData = async () => {
+    setRefreshing(true);
+    setRefreshStatus(null);
+    
+    try {
+      // Refresh yesterday's data by default
+      const result = await refreshData();
+      setRefreshStatus({
+        success: true,
+        message: result.message || 'Data refreshed successfully!'
+      });
+      
+      // Reload data after refresh
+      const weeklyData = await getWeeklyData(13);
+      setWeeklyData(weeklyData);
+      
+      if (weeklyData.length > 0) {
+        const week = weeklyData[selectedWeekIndex];
+        const weekStart = new Date(week.week_start_monday);
+        const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+        
+        const dailyData = await getDailyData(
+          week.week_start_monday,
+          weekEnd.toISOString().split('T')[0]
+        );
+        
+        setDailyData(dailyData);
+      }
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => setRefreshStatus(null), 5000);
+    } catch (err) {
+      setRefreshStatus({
+        success: false,
+        message: err.message || 'Failed to refresh data'
+      });
+      // Clear error message after 10 seconds
+      setTimeout(() => setRefreshStatus(null), 10000);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -353,8 +398,32 @@ const HealthMVP = () => {
       {/* Weekly Process Discipline */}
       <div className="bg-white rounded-lg shadow-sm p-8 mb-6">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Weekly Process Discipline</h2>
-          <div className="flex items-center gap-4 mb-6">
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-bold text-gray-900">Weekly Process Discipline</h2>
+            <button 
+              onClick={handleRefreshData}
+              disabled={refreshing}
+              className={`flex items-center gap-2 px-4 py-2 rounded transition-colors ${
+                refreshing 
+                  ? 'bg-gray-300 cursor-not-allowed' 
+                  : 'bg-blue-500 hover:bg-blue-600 text-white'
+              }`}
+              title="Refresh yesterday's data from HAE"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <span className="text-sm">{refreshing ? 'Refreshing...' : 'Refresh Data'}</span>
+            </button>
+            {refreshStatus && (
+              <div className={`px-4 py-2 rounded text-sm ${
+                refreshStatus.success 
+                  ? 'bg-green-100 text-green-800' 
+                  : 'bg-red-100 text-red-800'
+              }`}>
+                {refreshStatus.message}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-4">
             <button 
               onClick={() => handleWeekChange('prev')}
               disabled={selectedWeekIndex >= weeklyData.length - 1}

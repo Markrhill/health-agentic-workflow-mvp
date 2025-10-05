@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const { exec } = require('child_process');
+const path = require('path');
 const {
   getCurrentParameters,
   getCurrentPerformanceGoals,
@@ -71,6 +73,54 @@ router.get('/summary', async (req, res) => {
   } catch (error) {
     console.error('Error fetching health summary:', error);
     res.status(500).json({ error: 'Failed to fetch health summary' });
+  }
+});
+
+// Manual data refresh endpoint - triggers HAE import and materialization
+router.post('/refresh', async (req, res) => {
+  try {
+    const { date } = req.body;
+    const targetDate = date || new Date(Date.now() - 24*60*60*1000).toISOString().split('T')[0]; // Default to yesterday
+    
+    console.log(`[API] Manual refresh triggered for ${targetDate}`);
+    
+    // Get project root (backend is one level down from root)
+    const projectRoot = path.resolve(__dirname, '../..');
+    const wrapperScript = path.join(projectRoot, 'backend/ingest/hae_daily_pipeline_wrapper.sh');
+    
+    // Execute the pipeline wrapper script
+    exec(`bash "${wrapperScript}" "${targetDate}"`, 
+      { cwd: projectRoot, maxBuffer: 1024 * 1024 * 10 }, // 10MB buffer
+      (error, stdout, stderr) => {
+        if (error) {
+          console.error(`[API] Refresh failed for ${targetDate}:`, error);
+          console.error('STDERR:', stderr);
+          res.status(500).json({ 
+            success: false, 
+            error: error.message,
+            stderr: stderr,
+            date: targetDate
+          });
+          return;
+        }
+        
+        console.log(`[API] Refresh completed for ${targetDate}`);
+        console.log('STDOUT:', stdout);
+        
+        res.json({ 
+          success: true, 
+          message: `Data refreshed for ${targetDate}`,
+          date: targetDate,
+          output: stdout
+        });
+      }
+    );
+  } catch (error) {
+    console.error('[API] Refresh endpoint error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
 

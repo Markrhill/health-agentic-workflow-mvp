@@ -60,6 +60,13 @@ export const healthCheck = () => {
   return apiRequest('/health');
 };
 
+export const refreshData = (date = null) => {
+  return apiRequest('/refresh', {
+    method: 'POST',
+    body: JSON.stringify({ date }),
+  });
+};
+
 // Legacy method names for backward compatibility
 export const getCurrentParameters = getParameters;
 export const getDailyDataForWeek = getDailyData;
@@ -71,6 +78,7 @@ const apiService = {
   getGoals,
   getHealthMetricsSummary,
   healthCheck,
+  refreshData,
   // Legacy exports
   getCurrentParameters,
   getDailyDataForWeek,
