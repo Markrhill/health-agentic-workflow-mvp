@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { exec } = require('child_process');
+const { spawn } = require('child_process');
 const path = require('path');
 const {
   getCurrentParameters,
@@ -88,33 +88,56 @@ router.post('/refresh', async (req, res) => {
     const projectRoot = path.resolve(__dirname, '../..');
     const wrapperScript = path.join(projectRoot, 'backend/ingest/hae_daily_pipeline_wrapper.sh');
     
-    // Execute the pipeline wrapper script
-    exec(`bash "${wrapperScript}" "${targetDate}"`, 
-      { cwd: projectRoot, maxBuffer: 1024 * 1024 * 10 }, // 10MB buffer
-      (error, stdout, stderr) => {
-        if (error) {
-          console.error(`[API] Refresh failed for ${targetDate}:`, error);
-          console.error('STDERR:', stderr);
-          res.status(500).json({ 
-            success: false, 
-            error: error.message,
-            stderr: stderr,
-            date: targetDate
-          });
-          return;
-        }
-        
-        console.log(`[API] Refresh completed for ${targetDate}`);
-        console.log('STDOUT:', stdout);
-        
-        res.json({ 
-          success: true, 
-          message: `Data refreshed for ${targetDate}`,
-          date: targetDate,
-          output: stdout
+    // Use spawn instead of exec to pass environment variables and avoid Postgres.app permission dialog
+    // The spawned process inherits Node's environment, including DATABASE_URL
+    const child = spawn('bash', [wrapperScript, targetDate], {
+      cwd: projectRoot,
+      env: process.env, // Inherit all environment variables from Node process
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+    
+    child.on('close', (code) => {
+      if (code !== 0) {
+        console.error(`[API] Refresh failed for ${targetDate} (exit code ${code})`);
+        console.error('STDERR:', stderr);
+        res.status(500).json({ 
+          success: false, 
+          error: `Process exited with code ${code}`,
+          stderr: stderr,
+          date: targetDate
         });
+        return;
       }
-    );
+      
+      console.log(`[API] Refresh completed for ${targetDate}`);
+      console.log('STDOUT:', stdout);
+      
+      res.json({ 
+        success: true, 
+        message: `Data refreshed for ${targetDate}`,
+        date: targetDate,
+        output: stdout
+      });
+    });
+    
+    child.on('error', (error) => {
+      console.error('[API] Spawn error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message 
+      });
+    });
   } catch (error) {
     console.error('[API] Refresh endpoint error:', error);
     res.status(500).json({ 
