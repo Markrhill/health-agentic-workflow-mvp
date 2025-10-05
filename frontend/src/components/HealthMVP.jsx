@@ -49,7 +49,7 @@ const HealthMVP = () => {
     setRefreshStatus(null);
     
     try {
-      // Refresh yesterday's data by default
+      // Refresh today's data by default (allows updating partial days)
       const result = await refreshData();
       setRefreshStatus({
         success: true,
@@ -408,7 +408,7 @@ const HealthMVP = () => {
                   ? 'bg-gray-300 cursor-not-allowed' 
                   : 'bg-blue-500 hover:bg-blue-600 text-white'
               }`}
-              title="Refresh yesterday's data from HAE"
+              title="Refresh today's data from HAE (imports latest partial or complete day)"
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
               <span className="text-sm">{refreshing ? 'Refreshing...' : 'Refresh Data'}</span>

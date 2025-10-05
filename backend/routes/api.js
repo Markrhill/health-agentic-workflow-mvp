@@ -80,7 +80,7 @@ router.get('/summary', async (req, res) => {
 router.post('/refresh', async (req, res) => {
   try {
     const { date } = req.body;
-    const targetDate = date || new Date(Date.now() - 24*60*60*1000).toISOString().split('T')[0]; // Default to yesterday
+    const targetDate = date || new Date().toISOString().split('T')[0]; // Default to today (for partial data updates)
     
     console.log(`[API] Manual refresh triggered for ${targetDate}`);
     
