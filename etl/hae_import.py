@@ -10,8 +10,10 @@ from dotenv import load_dotenv
 from datetime import datetime
 from typing import Dict, List
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from project root
+project_root = Path(__file__).parent.parent
+env_path = project_root / '.env'
+load_dotenv(dotenv_path=env_path)
 
 def validate_field_mapping(conn, import_id):
     """Factory Rule: Validate field mapping completeness after import"""
