@@ -44,15 +44,19 @@ def validate_field_mapping(conn, import_id):
     print(f"  Fat coverage: {fat_days}/{total_days} ({fat_days/total_days*100:.1f}%)")
     
     # Alert if critical fields are missing
-    if fiber_days < total_days * 0.9:  # 90% threshold
+    # Note: HAE files often contain 2 days (current + previous day's body comp)
+    # Missing nutrition for the previous day is EXPECTED - it's in that day's file
+    if total_days > 1 and fiber_days == total_days - 1:
+        print(f"ℹ️  Note: 1 day missing nutrition (expected for HAE 2-day file overlap)")
+    elif fiber_days < total_days * 0.9:  # 90% threshold
         print(f"⚠️  WARNING: Fiber data missing for {total_days - fiber_days} days")
-    if protein_days < total_days * 0.9:
+    if protein_days < total_days * 0.9 and not (total_days > 1 and protein_days == total_days - 1):
         print(f"⚠️  WARNING: Protein data missing for {total_days - protein_days} days")
-    if energy_days < total_days * 0.9:
+    if energy_days < total_days * 0.9 and not (total_days > 1 and energy_days == total_days - 1):
         print(f"⚠️  WARNING: Energy data missing for {total_days - energy_days} days")
-    if carb_days < total_days * 0.9:
+    if carb_days < total_days * 0.9 and not (total_days > 1 and carb_days == total_days - 1):
         print(f"⚠️  WARNING: Carbohydrates data missing for {total_days - carb_days} days")
-    if fat_days < total_days * 0.9:
+    if fat_days < total_days * 0.9 and not (total_days > 1 and fat_days == total_days - 1):
         print(f"⚠️  WARNING: Fat data missing for {total_days - fat_days} days")
 
 def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
@@ -273,25 +277,31 @@ def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
         conflict_clause = "ON CONFLICT (fact_date) DO NOTHING"
     
     # Update daily_facts
+    # CRITICAL FIX: Consolidate ALL metrics for dates in this import, not just this import_id
+    # This handles HAE's 2-day file overlap where Oct 5 file contains Oct 4 body comp
+    # but Oct 4 nutrition is in Oct 4 file (different import_id)
     query = f"""
+        WITH dates_in_import AS (
+            SELECT DISTINCT date FROM hae_metrics_parsed WHERE import_id = %s
+        )
         INSERT INTO daily_facts (
             fact_date, intake_kcal, protein_g, carbs_g, fat_g, fiber_g,
             workout_kcal, weight_kg, fat_mass_kg, fat_free_mass_kg
         )
         SELECT 
-            date,
-            ROUND(MAX(CASE WHEN metric_name = 'dietary_energy' THEN value END)) as intake_kcal,
-            ROUND(MAX(CASE WHEN metric_name = 'protein' THEN value END), 1) as protein_g,
-            ROUND(MAX(CASE WHEN metric_name = 'carbohydrates' THEN value END), 1) as carbs_g,
-            ROUND(MAX(CASE WHEN metric_name = 'total_fat' THEN value END), 1) as fat_g,
-            ROUND(MAX(CASE WHEN metric_name = 'fiber' THEN value END), 1) as fiber_g,
-            ROUND(MAX(CASE WHEN metric_name = 'active_energy' THEN value END)) as workout_kcal,
-            ROUND(MAX(CASE WHEN metric_name = 'weight_body_mass' THEN value * 0.453592 END), 2) as weight_kg,
-            MAX(CASE WHEN metric_name = 'fat_mass_kg' THEN value END) as fat_mass_kg,
-            MAX(CASE WHEN metric_name = 'fat_free_mass_kg' THEN value END) as fat_free_mass_kg
-        FROM hae_metrics_parsed
-        WHERE import_id = %s
-        GROUP BY date
+            hmp.date,
+            ROUND(MAX(CASE WHEN hmp.metric_name = 'dietary_energy' THEN hmp.value END)) as intake_kcal,
+            ROUND(MAX(CASE WHEN hmp.metric_name = 'protein' THEN hmp.value END), 1) as protein_g,
+            ROUND(MAX(CASE WHEN hmp.metric_name = 'carbohydrates' THEN hmp.value END), 1) as carbs_g,
+            ROUND(MAX(CASE WHEN hmp.metric_name = 'total_fat' THEN hmp.value END), 1) as fat_g,
+            ROUND(MAX(CASE WHEN hmp.metric_name = 'fiber' THEN hmp.value END), 1) as fiber_g,
+            ROUND(MAX(CASE WHEN hmp.metric_name = 'active_energy' THEN hmp.value END)) as workout_kcal,
+            ROUND(MAX(CASE WHEN hmp.metric_name = 'weight_body_mass' THEN hmp.value * 0.453592 END), 2) as weight_kg,
+            MAX(CASE WHEN hmp.metric_name = 'fat_mass_kg' THEN hmp.value END) as fat_mass_kg,
+            MAX(CASE WHEN hmp.metric_name = 'fat_free_mass_kg' THEN hmp.value END) as fat_free_mass_kg
+        FROM hae_metrics_parsed hmp
+        INNER JOIN dates_in_import dii ON hmp.date = dii.date
+        GROUP BY hmp.date
         {conflict_clause}
     """
     cur.execute(query, (import_id,))
