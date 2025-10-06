@@ -62,12 +62,12 @@ const HealthMVP = () => {
       
       if (weeklyData.length > 0) {
         const week = weeklyData[selectedWeekIndex];
-        const weekStart = new Date(week.week_start_monday);
+        const weekStart = parseLocalDate(week.week_start_monday);
         const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
         
         const dailyData = await getDailyData(
           week.week_start_monday,
-          weekEnd.toISOString().split('T')[0]
+          toLocalDateString(weekEnd)
         );
         
         setDailyData(dailyData);
@@ -88,14 +88,27 @@ const HealthMVP = () => {
   };
 
 
-  const formatWeekDate = (dateString) => {
-    // Parse date as local date (not UTC) to avoid timezone offset issues
+  // Convert YYYY-MM-DD string to local Date object (no timezone shift)
+  const parseLocalDate = (dateString) => {
     const [year, month, day] = dateString.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
+    return new Date(year, month - 1, day);
+  };
+
+  // Format YYYY-MM-DD string as local date
+  const formatWeekDate = (dateString) => {
+    const date = parseLocalDate(dateString);
     return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric'
     });
+  };
+
+  // Get YYYY-MM-DD string from local Date object (no timezone shift)
+  const toLocalDateString = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   };
 
   useEffect(() => {
@@ -113,12 +126,12 @@ const HealthMVP = () => {
         // Load daily data for first week
         if (weeklyData.length > 0) {
           const week = weeklyData[0];
-          const weekStart = new Date(week.week_start_monday);
+          const weekStart = parseLocalDate(week.week_start_monday);
           const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
           
           const dailyData = await getDailyData(
             week.week_start_monday,
-            weekEnd.toISOString().split('T')[0]
+            toLocalDateString(weekEnd)
           );
           
           setDailyData(dailyData);
@@ -141,12 +154,12 @@ const HealthMVP = () => {
         try {
           const week = weeklyData[selectedWeekIndex];
           if (week) {
-            const weekStart = new Date(week.week_start_monday);
+            const weekStart = parseLocalDate(week.week_start_monday);
             const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
             
             const dailyData = await getDailyData(
               week.week_start_monday,
-              weekEnd.toISOString().split('T')[0]
+              toLocalDateString(weekEnd)
             );
             
             setDailyData(dailyData);
@@ -170,9 +183,9 @@ const HealthMVP = () => {
     weekStart: formatWeekDate(currentWeek.week_start_monday),
     weekEnd: (() => {
       // Calculate week end as Monday + 6 days (always shows full week range)
-      const weekStart = new Date(currentWeek.week_start_monday);
+      const weekStart = parseLocalDate(currentWeek.week_start_monday);
       const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
-      return formatWeekDate(weekEnd.toISOString().split('T')[0]);
+      return formatWeekDate(toLocalDateString(weekEnd));
     })(),
     dailyData: dailyData.length > 0 ? (() => {
       // Forward-fill BMR when missing (due to missing body comp) to calculate net_kcal
@@ -210,7 +223,7 @@ const HealthMVP = () => {
       });
     })() : [],
       trendData: weeklyData.slice(0, 13).filter(week => week.avg_fat_mass_ema).map(week => {
-        const date = new Date(week.week_start_monday);
+        const date = parseLocalDate(week.week_start_monday);
         const month = date.toLocaleDateString('en-US', { month: 'short' });
         const day = date.getDate();
         const fatMassLbs = parseFloat(week.avg_fat_mass_ema || 0) * 2.20462;
@@ -243,7 +256,7 @@ const HealthMVP = () => {
   // Debug the trend data calculation step by step
   if (weeklyData.length > 0) {
     const trendDataDebug = weeklyData.slice(0, 13).filter(week => week.avg_fat_mass_ema).map(week => {
-      const date = new Date(week.week_start_monday);
+      const date = parseLocalDate(week.week_start_monday);
       const month = date.toLocaleDateString('en-US', { month: 'short' });
       const day = date.getDate();
       const fatMassLbs = parseFloat(week.avg_fat_mass_ema || 0) * 2.20462;
