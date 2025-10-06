@@ -149,7 +149,8 @@ const HealthMVP = () => {
       
       loadDailyData();
     }
-  }, [selectedWeekIndex, weeklyData]); // Include weeklyData in dependencies
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedWeekIndex]); // Only re-run when week index changes, not when weeklyData reference changes
 
   if (loading) return <div className="p-6 text-center">Loading...</div>;
   if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
