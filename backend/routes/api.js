@@ -80,7 +80,9 @@ router.get('/summary', async (req, res) => {
 router.post('/refresh', async (req, res) => {
   try {
     const { date } = req.body;
-    const targetDate = date || new Date().toISOString().split('T')[0]; // Default to today (for partial data updates)
+    // Use local date, not UTC date (fixes timezone issues)
+    const now = new Date();
+    const targetDate = date || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     
     console.log(`[API] Manual refresh triggered for ${targetDate}`);
     
