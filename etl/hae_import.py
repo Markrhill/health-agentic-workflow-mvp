@@ -97,17 +97,33 @@ def import_hae_file(conn, file_path: str, overwrite_mode='update_nulls'):
     
     cur = conn.cursor()
     
-    # Check if already imported
-    cur.execute("SELECT import_id FROM hae_raw WHERE file_name = %s", (filename,))
+    # Get file modification time for timestamp-based freshness
+    file_mtime = datetime.fromtimestamp(Path(file_path).stat().st_mtime)
+    
+    # Check if already imported AND if we have a fresher file
+    cur.execute("""
+        SELECT import_id, ingested_at 
+        FROM hae_raw 
+        WHERE file_name = %s
+    """, (filename,))
     existing = cur.fetchone()
+    
     if existing:
-        if overwrite_mode == 'overwrite':
-            import_id = existing[0]
+        import_id, ingested_at = existing
+        
+        # PRINCIPAL: Always use freshest data
+        # If file is newer than last import, force overwrite
+        # Convert ingested_at to naive datetime for comparison (assumes both are local time)
+        ingested_at_naive = ingested_at.replace(tzinfo=None) if ingested_at.tzinfo else ingested_at
+        if file_mtime > ingested_at_naive:
+            print(f"📁 File {filename} updated since last import (file: {file_mtime}, last import: {ingested_at})")
+            print(f"🔄 Forcing overwrite to use freshest data (import_id {import_id})")
+            overwrite_mode = 'overwrite'  # Override user's mode
+        elif overwrite_mode == 'overwrite':
             print(f"Re-processing {filename} in overwrite mode (import_id {import_id})")
-            # Continue to process, don't return
         else:
-            print(f"File {filename} already imported as import_id {existing[0]}")
-            return existing[0]
+            print(f"File {filename} already imported as import_id {import_id} (no newer data)")
+            return import_id
     
     # Insert or update raw data
     if overwrite_mode == 'overwrite' and existing:
