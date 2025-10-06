@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { getWeeklyData, getDailyData, getGoals, refreshData } from '../services/api';
-import { parseLocalDate, toLocalDateString, formatDisplayDate, getWeekEnd } from '../utils/timezone';
+import { formatDisplayDate, getWeekEnd } from '../utils/timezone';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, ReferenceLine, LabelList } from 'recharts';
 
 const HealthMVP = () => {
