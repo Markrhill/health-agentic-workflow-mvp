@@ -26,23 +26,37 @@ const getCurrentParameters = async () => {
 const getWeeklyData = async (limit = 10) => {
   const pool = getPool();
   const query = `
+    WITH weekly_agg AS (
+      SELECT 
+        -- Calculate Monday of the week (PostgreSQL DOW: 0=Sunday, 1=Monday, ..., 6=Saturday)
+        -- Formula: date - (DOW + 6) % 7 gives the previous Monday
+        df.fact_date - ((EXTRACT(DOW FROM df.fact_date)::int + 6) % 7) as week_monday,
+        df.fact_date,
+        df.intake_kcal,
+        dsm.fat_mass_ema_kg,
+        dsm.net_kcal,
+        dsm.adj_exercise_kcal,
+        dsm.params_version_used,
+        dsm.computed_at,
+        CASE WHEN df.intake_is_imputed THEN 1 ELSE 0 END as is_imputed
+      FROM daily_facts df
+      LEFT JOIN daily_series_materialized dsm ON df.fact_date = dsm.fact_date
+      WHERE df.fact_date >= '2025-01-01'
+    )
     SELECT 
-      -- Calculate Monday of the week (PostgreSQL DOW: 0=Sunday, 1=Monday, ..., 6=Saturday)
-      -- Formula: date - (DOW + 6) % 7 gives the previous Monday
-      TO_CHAR(dsm.fact_date - ((EXTRACT(DOW FROM dsm.fact_date)::int + 6) % 7), 'YYYY-MM-DD') as week_start_monday,
+      TO_CHAR(week_monday, 'YYYY-MM-DD') as week_start_monday,
       COUNT(*) as days_in_week,
-      AVG(dsm.fat_mass_ema_kg) as avg_fat_mass_ema,
-      AVG(dsm.fat_mass_ema_kg) as avg_fat_mass_raw,  -- Using same value since no raw data available
-      AVG(dsm.net_kcal) as avg_net_kcal,
-      0 as total_intake,  -- Placeholder since intake data not available
-      SUM(dsm.adj_exercise_kcal) as total_adj_exercise,
-      0 as imputed_days,  -- Placeholder
-      MIN(dsm.params_version_used) as params_version,
-      MIN(dsm.computed_at) as computed_at
-    FROM daily_series_materialized dsm
-    WHERE dsm.fact_date >= '2025-01-01'
-    GROUP BY dsm.fact_date - ((EXTRACT(DOW FROM dsm.fact_date)::int + 6) % 7)
-    ORDER BY week_start_monday DESC
+      AVG(fat_mass_ema_kg) as avg_fat_mass_ema,
+      AVG(fat_mass_ema_kg) as avg_fat_mass_raw,  -- Using same value since raw=EMA in materialized view
+      AVG(net_kcal) as avg_net_kcal,
+      SUM(intake_kcal) as total_intake,
+      SUM(adj_exercise_kcal) as total_adj_exercise,
+      SUM(is_imputed) as imputed_days,
+      MIN(params_version_used) as params_version,
+      MIN(computed_at) as computed_at
+    FROM weekly_agg
+    GROUP BY week_monday
+    ORDER BY week_monday DESC
     LIMIT $1
   `;
   const result = await pool.query(query, [limit]);
