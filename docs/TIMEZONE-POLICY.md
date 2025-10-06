@@ -1,10 +1,19 @@
-# Timezone Policy: Pacific Time ONLY
+# Timezone Policy: Configurable Timezone (Default: Pacific)
 
 ## 🎯 **Core Principle**
 
-**This application operates EXCLUSIVELY in Pacific Time (PDT/PST).**
+**This application uses a single timezone configured via `.env`:**
 
-The user lives in the Bay Area. All dates must match what they see on their iPhone, calendar, and life.
+```bash
+HEALTH_TZ="America/Los_Angeles"  # Pacific Time (PDT/PST)
+```
+
+All dates must be consistent across:
+- Backend API responses
+- Frontend display
+- Database queries
+- HAE file processing
+- User's iPhone/Apple Health data
 
 ## ❌ **NEVER Use These**
 
@@ -27,34 +36,39 @@ date.toISOString()  // Unless you really need UTC for API timestamps
 ### **Frontend (React)**
 
 ```javascript
-// ✅ Parse YYYY-MM-DD as LOCAL date
-const parseLocalDate = (dateString) => {
-  const [year, month, day] = dateString.split('-').map(Number);
-  return new Date(year, month - 1, day);
-};
+// ✅ Import timezone utilities
+import { parseLocalDate, toLocalDateString, formatDisplayDate, getWeekEnd, getTodayLocal } from '../utils/timezone';
+
+// ✅ Parse YYYY-MM-DD as local date
+const date = parseLocalDate('2025-10-05');
 
 // ✅ Convert Date to YYYY-MM-DD (local)
-const toLocalDateString = (date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+const dateString = toLocalDateString(new Date());
 
 // ✅ Get today's date (local)
-const today = toLocalDateString(new Date());
+const today = getTodayLocal();
+
+// ✅ Format for display
+const displayDate = formatDisplayDate('2025-10-05'); // "Oct 5"
+
+// ✅ Calculate week end (Monday + 6 days)
+const sunday = getWeekEnd('2025-09-30'); // "2025-10-06"
 ```
+
+**See:** `frontend/src/utils/timezone.js` for all available utilities.
 
 ### **Backend (Node.js)**
 
 ```javascript
-// ✅ Get today's date (local)
-const now = new Date();
-const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+// ✅ Get today's date using configured timezone
+const timezone = process.env.HEALTH_TZ || 'America/Los_Angeles';
+const today = new Date().toLocaleDateString('en-CA', { timeZone: timezone }); // "2025-10-05"
 
-// ✅ For API timestamps (UTC is OK here)
+// ✅ For API timestamps (UTC is OK here - it's for logging, not user-facing dates)
 timestamp: new Date().toISOString()
 ```
+
+**Configuration:** Set `HEALTH_TZ` in `.env` to control timezone across all backend operations.
 
 ### **Database (PostgreSQL)**
 
@@ -69,6 +83,33 @@ SELECT CURRENT_DATE;
 SELECT fact_date + INTERVAL '7 days' FROM daily_facts;
 ```
 
+## 🏗️ **Architecture**
+
+### **Environment Configuration**
+
+```bash
+# .env
+HEALTH_TZ="America/Los_Angeles"  # IANA timezone identifier
+```
+
+All timezone-sensitive operations reference this single source of truth.
+
+### **Component Responsibilities**
+
+1. **Backend API** (`backend/routes/api.js`)
+   - Reads `HEALTH_TZ` from environment
+   - Uses `toLocaleDateString('en-CA', { timeZone })` for date calculations
+   - Passes dates to shell scripts and Python ETL
+
+2. **Frontend** (`frontend/src/utils/timezone.js`)
+   - Provides centralized date utilities
+   - Assumes browser is in same timezone as backend (Bay Area)
+   - No API call needed for timezone (reduces latency)
+
+3. **Database**
+   - Stores dates as `DATE` type (no timezone info)
+   - Application interprets all dates in configured timezone
+
 ## 🐛 **Why This Matters**
 
 ### **The Problem**
@@ -77,7 +118,7 @@ UTC is 7-8 hours ahead of Pacific Time:
 - **4pm PDT** = **11pm UTC** (same day)
 - **5pm PDT** = **12am UTC** (**next day**)
 
-After 4-5pm PDT:
+After 4-5pm PDT, naive UTC usage causes:
 - `toISOString().split('T')[0]` returns **tomorrow's date**
 - Refresh button tries to import non-existent HAE file for tomorrow
 - Week calculations show wrong dates
@@ -85,7 +126,10 @@ After 4-5pm PDT:
 
 ### **The Solution**
 
-**Use local date methods everywhere.**
+1. **Single source of truth:** `HEALTH_TZ` in `.env`
+2. **Centralized utilities:** `frontend/src/utils/timezone.js`
+3. **Explicit timezone handling:** `toLocaleDateString('en-CA', { timeZone })`
+4. **No UTC for dates:** Reserve UTC for API timestamps only
 
 ## 📋 **Audit Checklist**
 
@@ -108,19 +152,35 @@ If you see a date bug after 4-5pm:
 
 ## 📝 **Implementation Status**
 
-✅ **Backend** - Fixed in commit `9792441` (Oct 5, 2025)
-- `/api/refresh` endpoint uses local date
+✅ **Environment Configuration**
+- `.env` already had `HEALTH_TZ="America/Los_Angeles"`
 
-✅ **Frontend** - Fixed in commit `95fc93c` (Oct 5, 2025)
-- All date parsing/formatting uses local utilities
-- Week calculations use local dates
-- Chart date labels use local dates
+✅ **Backend** - Refactored (Oct 5, 2025)
+- `/api/refresh` endpoint uses `HEALTH_TZ` from `.env`
+- Uses `toLocaleDateString('en-CA', { timeZone })` for proper timezone handling
+
+✅ **Frontend** - Refactored (Oct 5, 2025)
+- Created `frontend/src/utils/timezone.js` with centralized utilities
+- All components import from shared utility module
+- Week calculations use `getWeekEnd()` helper
+- Chart date labels use `formatDisplayDate()` helper
 
 ✅ **Database** - No changes needed
 - DATE columns are timezone-agnostic
 - Queries treat dates as local
 
+✅ **Documentation** - Complete
+- `docs/TIMEZONE-POLICY.md` provides comprehensive guidance
+
 ---
 
-**Remember: The user is in the Bay Area. Pacific Time is the ONLY time.**
+## 🎓 **Benefits of This Architecture**
+
+1. **Single source of truth** - Change `HEALTH_TZ` in one place to support any timezone
+2. **Centralized utilities** - All date logic in `frontend/src/utils/timezone.js`
+3. **Testable** - Utilities can be unit tested independently
+4. **Maintainable** - Future developers see imports and know where to look
+5. **Flexible** - Could extend to support multiple timezones if needed
+
+**Configured timezone: `America/Los_Angeles` (Pacific Time)**
 

@@ -80,11 +80,12 @@ router.get('/summary', async (req, res) => {
 router.post('/refresh', async (req, res) => {
   try {
     const { date } = req.body;
-    // Use local date, not UTC date (fixes timezone issues)
+    // Use configured timezone from .env (default: America/Los_Angeles)
+    const timezone = process.env.HEALTH_TZ || 'America/Los_Angeles';
     const now = new Date();
-    const targetDate = date || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const targetDate = date || now.toLocaleDateString('en-CA', { timeZone: timezone }); // en-CA gives YYYY-MM-DD format
     
-    console.log(`[API] Manual refresh triggered for ${targetDate}`);
+    console.log(`[API] Manual refresh triggered for ${targetDate} (timezone: ${timezone})`);
     
     // Get project root (backend is one level down from root)
     const projectRoot = path.resolve(__dirname, '../..');

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { getWeeklyData, getDailyData, getGoals, refreshData } from '../services/api';
+import { parseLocalDate, toLocalDateString, formatDisplayDate, getWeekEnd } from '../utils/timezone';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, ReferenceLine, LabelList } from 'recharts';
 
 const HealthMVP = () => {
@@ -62,12 +63,11 @@ const HealthMVP = () => {
       
       if (weeklyData.length > 0) {
         const week = weeklyData[selectedWeekIndex];
-        const weekStart = parseLocalDate(week.week_start_monday);
-        const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+        const weekEndDate = getWeekEnd(week.week_start_monday);
         
         const dailyData = await getDailyData(
           week.week_start_monday,
-          toLocalDateString(weekEnd)
+          weekEndDate
         );
         
         setDailyData(dailyData);
@@ -88,28 +88,8 @@ const HealthMVP = () => {
   };
 
 
-  // Convert YYYY-MM-DD string to local Date object (no timezone shift)
-  const parseLocalDate = (dateString) => {
-    const [year, month, day] = dateString.split('-').map(Number);
-    return new Date(year, month - 1, day);
-  };
-
-  // Format YYYY-MM-DD string as local date
-  const formatWeekDate = (dateString) => {
-    const date = parseLocalDate(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  // Get YYYY-MM-DD string from local Date object (no timezone shift)
-  const toLocalDateString = (date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
+  // Timezone utilities are now imported from ../utils/timezone.js
+  // This ensures consistency with backend HEALTH_TZ environment variable
 
   useEffect(() => {
     const loadData = async () => {
@@ -126,12 +106,11 @@ const HealthMVP = () => {
         // Load daily data for first week
         if (weeklyData.length > 0) {
           const week = weeklyData[0];
-          const weekStart = parseLocalDate(week.week_start_monday);
-          const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+          const weekEndDate = getWeekEnd(week.week_start_monday);
           
           const dailyData = await getDailyData(
             week.week_start_monday,
-            toLocalDateString(weekEnd)
+            weekEndDate
           );
           
           setDailyData(dailyData);
@@ -154,12 +133,11 @@ const HealthMVP = () => {
         try {
           const week = weeklyData[selectedWeekIndex];
           if (week) {
-            const weekStart = parseLocalDate(week.week_start_monday);
-            const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+            const weekEndDate = getWeekEnd(week.week_start_monday);
             
             const dailyData = await getDailyData(
               week.week_start_monday,
-              toLocalDateString(weekEnd)
+              weekEndDate
             );
             
             setDailyData(dailyData);
@@ -180,13 +158,8 @@ const HealthMVP = () => {
   
   // Transform API data to match the visual component structure with robust error handling
   const currentWeekData = currentWeek ? {
-    weekStart: formatWeekDate(currentWeek.week_start_monday),
-    weekEnd: (() => {
-      // Calculate week end as Monday + 6 days (always shows full week range)
-      const weekStart = parseLocalDate(currentWeek.week_start_monday);
-      const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
-      return formatWeekDate(toLocalDateString(weekEnd));
-    })(),
+    weekStart: formatDisplayDate(currentWeek.week_start_monday),
+    weekEnd: formatDisplayDate(getWeekEnd(currentWeek.week_start_monday)),
     dailyData: dailyData.length > 0 ? (() => {
       // Forward-fill BMR when missing (due to missing body comp) to calculate net_kcal
       // See: docs/adr/0004-frontend-bmr-forward-fill.md
@@ -223,13 +196,10 @@ const HealthMVP = () => {
       });
     })() : [],
       trendData: weeklyData.slice(0, 13).filter(week => week.avg_fat_mass_ema).map(week => {
-        const date = parseLocalDate(week.week_start_monday);
-        const month = date.toLocaleDateString('en-US', { month: 'short' });
-        const day = date.getDate();
         const fatMassLbs = parseFloat(week.avg_fat_mass_ema || 0) * 2.20462;
         const rawLbs = week.avg_fat_mass_raw ? parseFloat(week.avg_fat_mass_raw) * 2.20462 : null;
         return {
-          date: `${month} ${day}`,
+          date: formatDisplayDate(week.week_start_monday),
           fatMass: fatMassLbs, // Convert kg to lbs (smoothed EMA)
           raw: rawLbs // Convert kg to lbs (raw data) - null if no raw data
         };
@@ -256,13 +226,10 @@ const HealthMVP = () => {
   // Debug the trend data calculation step by step
   if (weeklyData.length > 0) {
     const trendDataDebug = weeklyData.slice(0, 13).filter(week => week.avg_fat_mass_ema).map(week => {
-      const date = parseLocalDate(week.week_start_monday);
-      const month = date.toLocaleDateString('en-US', { month: 'short' });
-      const day = date.getDate();
       const fatMassLbs = parseFloat(week.avg_fat_mass_ema || 0) * 2.20462;
       const rawLbs = week.avg_fat_mass_raw ? parseFloat(week.avg_fat_mass_raw) * 2.20462 : null;
       return {
-        date: `${month} ${day}`,
+        date: formatDisplayDate(week.week_start_monday),
         fatMass: fatMassLbs,
         raw: rawLbs,
         original_kg: week.avg_fat_mass_ema,
