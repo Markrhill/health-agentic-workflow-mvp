@@ -76,24 +76,18 @@ router.get('/summary', async (req, res) => {
   }
 });
 
-// Manual data refresh endpoint - triggers HAE import and materialization
+// Manual data refresh endpoint - triggers incremental HAE import and materialization
 router.post('/refresh', async (req, res) => {
   try {
-    const { date } = req.body;
-    // Use configured timezone from .env (default: America/Los_Angeles)
-    const timezone = process.env.HEALTH_TZ || 'America/Los_Angeles';
-    const now = new Date();
-    const targetDate = date || now.toLocaleDateString('en-CA', { timeZone: timezone }); // en-CA gives YYYY-MM-DD format
-    
-    console.log(`[API] Manual refresh triggered for ${targetDate} (timezone: ${timezone})`);
+    console.log(`[API] Incremental refresh triggered (manual)`);
     
     // Get project root (backend is one level down from root)
     const projectRoot = path.resolve(__dirname, '../..');
-    const wrapperScript = path.join(projectRoot, 'backend/ingest/hae_daily_pipeline_wrapper.sh');
+    const refreshScript = path.join(projectRoot, 'backend/ingest/hae_incremental_refresh.sh');
     
     // Use spawn instead of exec to pass environment variables and avoid Postgres.app permission dialog
     // The spawned process inherits Node's environment, including DATABASE_URL
-    const child = spawn('bash', [wrapperScript, targetDate], {
+    const child = spawn('bash', [refreshScript, 'manual_refresh'], {
       cwd: projectRoot,
       env: process.env, // Inherit all environment variables from Node process
       stdio: ['ignore', 'pipe', 'pipe']
@@ -101,6 +95,20 @@ router.post('/refresh', async (req, res) => {
     
     let stdout = '';
     let stderr = '';
+    let responseSent = false;
+    
+    // 30-second timeout to prevent hanging
+    const timeout = setTimeout(() => {
+      if (!responseSent) {
+        responseSent = true;
+        child.kill('SIGTERM');
+        console.error(`[API] Incremental refresh timeout after 30s`);
+        res.status(504).json({ 
+          success: false, 
+          error: 'Refresh process timed out after 30 seconds'
+        });
+      }
+    }, 30000);
     
     child.stdout.on('data', (data) => {
       stdout += data.toString();
@@ -111,30 +119,35 @@ router.post('/refresh', async (req, res) => {
     });
     
     child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (responseSent) return; // Already sent timeout response
+      responseSent = true;
+      
       if (code !== 0) {
-        console.error(`[API] Refresh failed for ${targetDate} (exit code ${code})`);
+        console.error(`[API] Incremental refresh failed (exit code ${code})`);
         console.error('STDERR:', stderr);
         res.status(500).json({ 
           success: false, 
           error: `Process exited with code ${code}`,
-          stderr: stderr,
-          date: targetDate
+          stderr: stderr
         });
         return;
       }
       
-      console.log(`[API] Refresh completed for ${targetDate}`);
+      console.log(`[API] Incremental refresh completed successfully`);
       console.log('STDOUT:', stdout);
       
       res.json({ 
         success: true, 
-        message: `Data refreshed for ${targetDate}`,
-        date: targetDate,
+        message: `Data refreshed successfully (incremental update)`,
         output: stdout
       });
     });
     
     child.on('error', (error) => {
+      clearTimeout(timeout);
+      if (responseSent) return;
+      responseSent = true;
       console.error('[API] Spawn error:', error);
       res.status(500).json({ 
         success: false, 

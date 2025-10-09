@@ -128,29 +128,24 @@ const HealthMVP = () => {
 
   // Load daily data when selectedWeekIndex changes (but only after weeklyData is loaded)
   useEffect(() => {
-    if (weeklyData.length > 0 && selectedWeekIndex >= 0) {
-      const loadDailyData = async () => {
-        try {
-          const week = weeklyData[selectedWeekIndex];
-          if (week) {
-            const weekEndDate = getWeekEnd(week.week_start_monday);
-            
-            const dailyData = await getDailyData(
-              week.week_start_monday,
-              weekEndDate
-            );
-            
-            setDailyData(dailyData);
-          }
-        } catch (err) {
-          console.error('Daily data error:', err);
-        }
-      };
+    const loadDailyData = async () => {
+      if (weeklyData.length === 0 || selectedWeekIndex < 0) return;
       
-      loadDailyData();
-    }
+      try {
+        const week = weeklyData[selectedWeekIndex];
+        if (!week) return;
+        
+        const weekEndDate = getWeekEnd(week.week_start_monday);
+        const dailyData = await getDailyData(week.week_start_monday, weekEndDate);
+        setDailyData(dailyData);
+      } catch (err) {
+        console.error('Daily data error:', err);
+      }
+    };
+    
+    loadDailyData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedWeekIndex]); // Only re-run when week index changes, not when weeklyData reference changes
+  }, [selectedWeekIndex]); // weeklyData is used but not a dependency - we only want to re-run when user changes week
 
   if (loading) return <div className="p-6 text-center">Loading...</div>;
   if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
@@ -206,44 +201,6 @@ const HealthMVP = () => {
         };
       }).reverse()
   } : null;
-
-  // Debug: Log raw daily data for verification
-  console.log('Raw dailyData:', dailyData);
-  console.log('Processed dailyData:', currentWeekData?.dailyData);
-  
-  // Debug: Log data availability
-  console.log('Debug - weeklyData length:', weeklyData.length);
-  console.log('Debug - dailyData length:', dailyData.length);
-  console.log('Debug - currentWeek:', currentWeek);
-  console.log('Debug - selectedWeekIndex:', selectedWeekIndex);
-  console.log('Debug - currentWeekData:', currentWeekData);
-  console.log('Debug - trendData:', currentWeekData?.trendData);
-  console.log('Debug - first 3 weeks of weeklyData:', weeklyData.slice(0, 3).map(week => ({
-    week_start: week.week_start_monday,
-    avg_fat_mass_ema: week.avg_fat_mass_ema,
-    avg_fat_mass_raw: week.avg_fat_mass_raw
-  })));
-  
-  // Debug the trend data calculation step by step
-  if (weeklyData.length > 0) {
-    const trendDataDebug = weeklyData.slice(0, 13).filter(week => week.avg_fat_mass_ema).map(week => {
-      const fatMassLbs = parseFloat(week.avg_fat_mass_ema || 0) * 2.20462;
-      const rawLbs = week.avg_fat_mass_raw ? parseFloat(week.avg_fat_mass_raw) * 2.20462 : null;
-      return {
-        date: formatDisplayDate(week.week_start_monday),
-        fatMass: fatMassLbs,
-        raw: rawLbs,
-        original_kg: week.avg_fat_mass_ema,
-        original_raw_kg: week.avg_fat_mass_raw
-      };
-    }).reverse();
-    console.log('Debug - calculated trendData step by step:', trendDataDebug);
-  }
-
-  // Safety check for insufficient daily data
-  if (!currentWeekData || currentWeekData.dailyData.length < 4) {
-    console.log('Insufficient daily data:', currentWeekData?.dailyData.length);
-  }
   
   // Function to pad incomplete weekly data with placeholder days
   const padWeekData = (dailyData) => {
@@ -327,20 +284,12 @@ const HealthMVP = () => {
     // trendData is reversed (oldest to newest), so we need to map selectedWeekIndex to the correct trendData indices
     const trendData = currentWeekData?.trendData || [];
     
-    // Debug: Let's see what we're working with
-    console.log('Debug fat mass calculation:');
-    console.log('selectedWeekIndex:', selectedWeekIndex);
-    console.log('trendData length:', trendData.length);
-    console.log('trendData dates:', trendData.map((item, index) => `${index}: ${item.date} (${item.fatMass} lbs)`));
-    
     // Dynamic mapping based on selectedWeekIndex
     // selectedWeekIndex 0 = current week, 1 = previous week, etc.
     // trendData is reversed (oldest to newest), so we need to map correctly
     // For fat mass comparison, we want current week and previous week
     const currentWeekTrendIndex = trendData.length - 1 - selectedWeekIndex;
     const previousWeekTrendIndex = currentWeekTrendIndex - 1;
-    
-    console.log('currentWeekTrendIndex:', currentWeekTrendIndex, 'previousWeekTrendIndex:', previousWeekTrendIndex);
     
     // For fat mass change, use the most recent available readings
     // Current week: most recent reading from this week's daily data
@@ -354,8 +303,6 @@ const HealthMVP = () => {
     
     // Get most recent fat mass from previous week (from trendData)
     const startFatMass = previousWeekTrendIndex >= 0 ? trendData[previousWeekTrendIndex]?.fatMass || 0 : 0;
-    
-    console.log('startFatMass (prev week):', startFatMass, 'endFatMass (current week most recent):', endFatMass);
     const actualChange = endFatMass - startFatMass;
     
     // Get model parameter for fat energy density (use first day's value since it should be consistent)
@@ -430,7 +377,7 @@ const HealthMVP = () => {
           <ResponsiveContainer 
             width="100%" 
             height="100%"
-            onResize={(width, height) => console.log('BarChart resize:', width, height)}
+            onResize={() => {}}
           >
             <BarChart 
               data={weeklyChartData?.chartData || []}
@@ -683,7 +630,7 @@ const HealthMVP = () => {
           <ResponsiveContainer 
             width="100%" 
             height="100%"
-            onResize={(width, height) => console.log('Chart resize:', width, height)}
+            onResize={() => {}}
           >
             <LineChart data={(currentWeekData?.trendData || []).filter(point => 
               point.fatMass && point.fatMass > 0 && (!point.raw || point.raw > 0)
